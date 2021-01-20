@@ -1307,12 +1307,26 @@ mod tests {
         assert_eq!(mesh.num_edges(), expect.len());
     }
 
+    #[track_caller]
+    fn assert_tris<V, E, F: Clone + Debug + Eq + Hash, FI: TryInto<TriId>, I: IntoIterator<Item = (FI, F)>>(mesh: &ComboMesh2<V, E, F>, tris: I) {
+        let result = mesh.tris().map(|(id, f)| (*id, f.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = tris.into_iter()
+            .map(|(vertices, f)| (vertices.try_into().ok().unwrap(), f))
+            .collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+        assert_eq!(mesh.num_tris(), expect.len());
+    }
+
     #[test]
     fn test_default() {
         let mesh = ComboMesh2::<(), (), ()>::default();
         assert!(mesh.vertices.is_empty());
         assert!(mesh.edges.is_empty());
+        assert!(mesh.tris.is_empty());
         assert_eq!(mesh.num_edges(), 0);
+        assert_eq!(mesh.num_tris(), 0);
     }
 
     #[test]
@@ -1396,6 +1410,13 @@ mod tests {
             assert_eq!(mesh.edge(edge), Some(&value))
         }
         assert_eq!(mesh.num_edges(), 5);
+    }
+    
+    #[test]
+    fn test_add_tri() {
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let prev = mesh.add_edge([ids[1], ids[3]], 54);
     }
 
     #[test]
