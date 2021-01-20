@@ -1,5 +1,7 @@
 //! Cimplex (prononuced KIM-plex) is a simplicial complex library.
 
+use std::convert::TryInto;
+
 use nalgebra::{Vector1, Vector2, Vector3, VectorN};
 type Vec1 = Vector1<f64>;
 type Vec2 = Vector2<f64>;
@@ -11,6 +13,29 @@ pub mod mesh_1;
 
 pub use mesh_0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh_1::ComboMesh1;
+
+/// Marker trait to aid converting
+/// lists of vertices into simplex ids.
+/// This trait exists to simplify the need for
+/// the error type in `TryFrom` to be `Debug`,
+/// avoiding complicating the bounds of functions.
+pub trait IntoId<I> {
+    /// Turns `self` into an id. Is allowed to panic.
+    fn into_id(self) -> I;
+
+    /// Turns `self` into an id without checking for inequality of the vertices.
+    fn into_id_unchecked(self) -> I;
+}
+
+impl<I> IntoId<I> for I {
+    fn into_id(self) -> I {
+        self
+    }
+
+    fn into_id_unchecked(self) -> I {
+        self
+    }
+}
 
 #[macro_export]
 macro_rules! impl_integer_id {
@@ -28,13 +53,5 @@ macro_rules! impl_integer_id {
                 $type(id)
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }

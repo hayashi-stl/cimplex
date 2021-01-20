@@ -92,6 +92,20 @@ impl<V> ComboMesh0<V> {
         self.vertices.remove(id)
     }
 
+    /// Removes a list of vertices.
+    pub fn remove_vertices<I: IntoIterator<Item = VertexId>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|id| { self.remove_vertex(id); })
+    }
+
+    /// Keeps only the vertices that satisfy a predicate
+    pub fn retain_vertices<P: FnMut(VertexId, &V) -> bool>(&mut self, mut predicate: P) {
+        let to_remove = self.vertices()
+            .filter(|(id, v)| !predicate(**id, *v))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        self.remove_vertices(to_remove);
+    }
+
     /// Removes all vertices from the mesh.
     pub fn clear_vertices(&mut self) {
         self.vertices.clear()
