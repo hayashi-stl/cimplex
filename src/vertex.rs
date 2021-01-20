@@ -12,6 +12,12 @@ use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex};
 pub struct VertexId(u64);
 crate::impl_integer_id!(VertexId);
 
+impl VertexId {
+    pub(crate) fn dummy() -> Self {
+        Self(0)
+    }
+}
+
 pub type Vertices<'a, VT> = Map<idmap::Iter<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
     for<'b> fn((&'b VertexId, &'b VT)) -> (&'b VertexId, &'b <VT as Vertex>::V)>;
 pub type VerticesMut<'a, VT> = Map<idmap::IterMut<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
@@ -71,7 +77,9 @@ pub trait HasVertices:
     /// Removes a vertex from the mesh.
     /// Returns the value of the vertex that was there or None if none was there,
     fn remove_vertex(&mut self, id: VertexId) -> Option<V!()> {
-        self.remove_vertex_higher(id);
+        if self.vertex(id).is_some() {
+            self.remove_vertex_higher(id);
+        }
         self.vertices_raw_mut().remove(id).map(|v| v.to_value())
     }
 
@@ -141,6 +149,22 @@ pub(crate) mod internal {
 
                 fn value_mut(&mut self) -> &mut Self::V {
                     &mut self.value
+                }
+            }
+        };
+    }
+
+    #[macro_export]
+    #[doc(hidden)]
+    macro_rules! impl_higher_vertex {
+        ($name:ident<$v:ident>) => {
+            impl<$v> crate::vertex::internal::HigherVertex for $name<$v> {
+                fn target(&self) -> VertexId {
+                    self.target
+                }
+
+                fn target_mut(&mut self) -> &mut crate::vertex::VertexId {
+                    &mut self.target
                 }
             }
         };
