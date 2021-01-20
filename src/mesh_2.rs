@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::{VecN, impl_integer_id};
 
-/// An index to a vertex of an edge mesh.
+/// An index to a vertex of an tri mesh.
 /// Will not be invalidated unless the vertex gets removed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
@@ -56,6 +56,75 @@ impl EdgeId {
     }
 }
 
+/// An triangle id is just the triangle's vertices in winding order,
+/// with the smallest index first.
+/// No two vertices are allowed to be the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+pub struct TriId([VertexId; 3]);
+
+impl TryFrom<[VertexId; 3]> for TriId {
+    type Error = &'static str;
+
+    fn try_from(mut v: [VertexId; 3]) -> Result<Self, Self::Error> {
+        v = Self::canonicalize(v);
+        
+        if v[0] == v[1] || v[2] == v[0] || v[1] == v[2] {
+            Err("Vertices are not allowed to be the same")
+        } else {
+            Ok(TriId(v))
+        }
+    }
+}
+
+impl TriId {
+    fn canonicalize(mut v: [VertexId; 3]) -> [VertexId; 3] {
+        let min_pos = v.iter().enumerate().min_by_key(|(_, value)| **value).unwrap().0;
+        v.rotate_left(min_pos);
+        v
+    }
+
+    /// Gets the vertices that this tri id is made of
+    pub fn vertices(self) -> [VertexId; 3] {
+        self.0
+    }
+
+    /// Gets the edges of the triangle, with sources in the order of the vertices
+    pub fn edges(self) -> [EdgeId; 3] {
+        [
+            EdgeId([self.0[0], self.0[1]]),
+            EdgeId([self.0[1], self.0[2]]),
+            EdgeId([self.0[2], self.0[0]]),
+        ]
+    }
+
+    /// Gets the edges of the triangle, with sources in the order of the vertices.
+    /// Each edge includes its opposite vertex.
+    pub fn edges_and_opposite(self) -> [(EdgeId, VertexId); 3] {
+        [
+            (EdgeId([self.0[0], self.0[1]]), self.0[2]),
+            (EdgeId([self.0[1], self.0[2]]), self.0[0]),
+            (EdgeId([self.0[2], self.0[0]]), self.0[1]),
+        ]
+    }
+
+    /// Gets the index of a vertex, assuming it's part of the face
+    fn index(self, vertex: VertexId) -> usize {
+        self.0.iter().position(|v| *v == vertex).unwrap()
+    }
+
+    /// Reverses the tri so it winds the other way
+    fn twin(self) -> Self {
+        Self([self.0[0], self.0[2], self.0[1]])
+    }
+
+    fn target(mut self, vertex: VertexId) -> Self {
+        self.0[2] = vertex;
+        self.0 = Self::canonicalize(self.0);
+        self
+    }
+}
+
 pub type Vertices<'a, V> = Map<idmap::Iter<'a, VertexId, Vertex<V>, DenseEntryTable<VertexId, Vertex<V>>>,
     for<'b> fn((&'b VertexId, &'b Vertex<V>)) -> (&'b VertexId, &'b V)>;
 pub type VerticesMut<'a, V> = Map<idmap::IterMut<'a, VertexId, Vertex<V>, DenseEntryTable<VertexId, Vertex<V>>>,
@@ -68,7 +137,14 @@ type EdgeFilterFnMut<'a, E> = for<'b> fn(&'b (&'a EdgeId, &'a mut Edge<E>)) -> b
 type EdgeMapFnMut<'a, E> = fn((&'a EdgeId, &'a mut Edge<E>)) -> (&'a EdgeId, &'a mut E);
 pub type EdgesMut<'a, E> = Map<Filter<hash_map::IterMut<'a, EdgeId, Edge<E>>, EdgeFilterFnMut<'a, E>>, EdgeMapFnMut<'a, E>>;
 
-//// A vertex of an edge mesh
+type TriFilterFn<'a, F> = for<'b> fn(&'b (&'a TriId, &'a Tri<F>)) -> bool;
+type TriMapFn<'a, F> = fn((&'a TriId, &'a Tri<F>)) -> (&'a TriId, &'a F);
+pub type Tris<'a, F> = Map<Filter<hash_map::Iter<'a, TriId, Tri<F>>, TriFilterFn<'a, F>>, TriMapFn<'a, F>>;
+type TriFilterFnMut<'a, F> = for<'b> fn(&'b (&'a TriId, &'a mut Tri<F>)) -> bool;
+type TriMapFnMut<'a, F> = fn((&'a TriId, &'a mut Tri<F>)) -> (&'a TriId, &'a mut F);
+pub type TrisMut<'a, F> = Map<Filter<hash_map::IterMut<'a, TriId, Tri<F>>, TriFilterFnMut<'a, F>>, TriMapFnMut<'a, F>>;
+
+//// A vertex of an tri mesh
 #[derive(Clone, Debug)]
 #[doc(hidden)]
 #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
@@ -78,7 +154,7 @@ pub struct Vertex<V> {
     value: V,
 }
 
-/// An edge of an edge mesh
+/// An edge of an tri mesh
 #[derive(Clone, Debug)]
 #[doc(hidden)]
 #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
@@ -87,41 +163,86 @@ pub struct Edge<E> {
     prev_target: VertexId,
     /// Next outgoing target from the same vertex, whether the edge actually exists or not
     next_target: VertexId,
+    /// Some vertex opposite this edge in a triangle.
+    /// This is the edge's first vertex if the edge is not part of a triangle.
+    opp: VertexId,
     /// The edge does not actually exist if the value is None;
     /// it is just there for the structural purpose of
     /// ensuring that every edge has a twin.
     value: Option<E>,
 }
 
-/// A combinatorial simplicial 1-complex, containing only vertices and (oriented) edges.
-/// Also known as an edge mesh.
+/// A triangle of an tri mesh
+#[derive(Clone, Debug)]
+#[doc(hidden)]
+#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+pub struct Tri<F> {
+    /// Previous targets from the same edge for each of the edges,
+    /// whether the face actually exists or not
+    prev_targets: [VertexId; 3],
+    /// Next targets from the same edge for each of the edges,
+    /// whether the face actually exists or not
+    next_targets: [VertexId; 3],
+    /// The triangle does not actually exist if the value is None;
+    /// it is just there for the structural purpose of
+    /// ensuring that every triangle has a twin.
+    value: Option<F>,
+}
+
+impl<F> Tri<F> {
+    fn prev_target(&self, id: TriId, edge: EdgeId) -> VertexId {
+        self.prev_targets[id.index(edge.0[0])]
+    }
+
+    fn prev_target_mut(&mut self, id: TriId, edge: EdgeId) -> &mut VertexId {
+        &mut self.prev_targets[id.index(edge.0[0])]
+    }
+
+    fn next_target(&self, id: TriId, edge: EdgeId) -> VertexId {
+        self.next_targets[id.index(edge.0[0])]
+    }
+
+    fn next_target_mut(&mut self, id: TriId, edge: EdgeId) -> &mut VertexId {
+        &mut self.next_targets[id.index(edge.0[0])]
+    }
+}
+
+/// A combinatorial simplicial 2-complex, containing only vertices, (oriented) edges, and (oriented) triangles.
+/// Also known as an tri mesh.
 /// Each vertex stores a value of type `V`.
 /// Each edge stores its vertices and a value of type `E`.
+/// Each triangle stores its vertices and a value of type `F`.
 /// The edge manipulation methods can either be called with an array of 2 `VertexId`s
 /// or an `EdgeId`.
+/// The triangle manipulation methods can either be called with an array of 3 `VertexId`s
+/// or an `TriId`.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
-pub struct ComboMesh1<V, E> {
+pub struct ComboMesh2<V, E, F> {
     vertices: OrderedIdMap<VertexId, Vertex<V>>,
     edges: FnvHashMap<EdgeId, Edge<E>>,
+    tris: FnvHashMap<TriId, Tri<F>>,
     next_vertex_id: u64,
     /// Keep separate track because edge twins may or may not exist
     num_edges: usize,
+    num_tris: usize,
 }
 
-impl<V, E> Default for ComboMesh1<V, E> {
+impl<V, E, F> Default for ComboMesh2<V, E, F> {
     fn default() -> Self {
-        ComboMesh1 {
+        ComboMesh2 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
             next_vertex_id: 0,
             num_edges: 0,
+            num_tris: 0,
         }
     }
 }
 
-impl<V, E> ComboMesh1<V, E> {
-    /// Creates an empty edge mesh.
+impl<V, E, F> ComboMesh2<V, E, F> {
+    /// Creates an empty tri mesh.
     pub fn new() -> Self {
         Self::default()
     }
@@ -164,6 +285,27 @@ impl<V, E> ComboMesh1<V, E> {
             .map::<_, EdgeMapFnMut<E>>(|(id, e)| (id, e.value.as_mut().unwrap()))
     }
 
+    /// Gets the number of triangles.
+    pub fn num_tris(&self) -> usize {
+        self.num_tris
+    }
+
+    /// Iterates over the triangles of this mesh.
+    /// Gives (id, value) pairs
+    pub fn tris(&self) -> Tris<F> {
+        self.tris.iter()
+            .filter::<TriFilterFn<F>>(|(_, f)| f.value.is_some())
+            .map::<_, TriMapFn<F>>(|(id, f)| (id, f.value.as_ref().unwrap()))
+    }
+
+    /// Iterates mutably over the triangles of this mesh.
+    /// Gives (id, value) pairs
+    pub fn tris_mut(&mut self) -> TrisMut<F> {
+        self.tris.iter_mut()
+            .filter::<TriFilterFnMut<F>>(|(_, f)| f.value.is_some())
+            .map::<_, TriMapFnMut<F>>(|(id, f)| (id, f.value.as_mut().unwrap()))
+    }
+
     /// Gets the value of the vertex at a specific id.
     /// Returns None if not found.
     pub fn vertex(&self, id: VertexId) -> Option<&V> {
@@ -178,8 +320,8 @@ impl<V, E> ComboMesh1<V, E> {
 
     /// Iterates over the outgoing edges of a vertex.
     /// The vertex must exist.
-    pub fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<V, E> {
-        if let Some(walker) = self.walker_from_vertex(vertex) {
+    pub fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<V, E, F> {
+        if let Some(walker) = self.edge_walker_from_vertex(vertex) {
             let start_target = walker.target();
             VertexEdgesOut {
                 walker,
@@ -188,7 +330,7 @@ impl<V, E> ComboMesh1<V, E> {
             }
         } else {
             VertexEdgesOut {
-                walker: Walker::dummy(self),
+                walker: EdgeWalker::dummy(self),
                 start_target: VertexId(0),
                 finished: true,
             }
@@ -197,8 +339,8 @@ impl<V, E> ComboMesh1<V, E> {
 
     /// Iterates over the incoming edges of a vertex.
     /// The vertex must exist.
-    pub fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<V, E> {
-        if let Some(walker) = Walker::from_vertex_less_checked(self, vertex).and_then(|w| w.backward()) {
+    pub fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<V, E, F> {
+        if let Some(walker) = EdgeWalker::from_vertex_less_checked(self, vertex).and_then(|w| w.backward()) {
             let start_source = walker.vertex();
             VertexEdgesIn {
                 walker,
@@ -207,8 +349,27 @@ impl<V, E> ComboMesh1<V, E> {
             }
         } else {
             VertexEdgesIn {
-                walker: Walker::dummy(self),
+                walker: EdgeWalker::dummy(self),
                 start_source: VertexId(0),
+                finished: true,
+            }
+        }
+    }
+
+    /// Iterates over the triangles that an edge is part of.
+    /// The edge must exist.
+    pub fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EdgeId) -> EdgeTris<V, E, F> {
+        if let Some(walker) = self.tri_walker_from_edge(edge) {
+            let start_opp = walker.opp();
+            EdgeTris {
+                walker,
+                start_opp,
+                finished: false,
+            }
+        } else {
+            EdgeTris {
+                walker: TriWalker::dummy(self),
+                start_opp: VertexId(0),
                 finished: true,
             }
         }
@@ -224,6 +385,18 @@ impl<V, E> ComboMesh1<V, E> {
     /// Returns None if not found.
     pub fn edge_mut<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<&mut E> {
         id.try_into().ok().and_then(move |id| self.edges.get_mut(&id)).and_then(|e| e.value.as_mut())
+    }
+    
+    /// Gets the value of the triangle at a specific id.
+    /// Returns None if not found.
+    pub fn tri<FI: TryInto<TriId>>(&self, id: FI) -> Option<&F> {
+        id.try_into().ok().and_then(|id| self.tris.get(&id)).and_then(|f| f.value.as_ref())
+    }
+
+    /// Gets the value of the triangle at a specific id mutably.
+    /// Returns None if not found.
+    pub fn tri_mut<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<&mut F> {
+        id.try_into().ok().and_then(move |id| self.tris.get_mut(&id)).and_then(|f| f.value.as_mut())
     }
     
     /// Adds a vertex to the mesh and returns the id.
@@ -246,14 +419,14 @@ impl<V, E> ComboMesh1<V, E> {
     /// Removes a vertex from the mesh.
     /// Returns the value of the vertex that was there or None if none was there,
     /// along with the values of all the edges that were removed as a result.
-    pub fn remove_vertex(&mut self, id: VertexId) -> (Option<V>, Vec<E>) {
+    pub fn remove_vertex(&mut self, id: VertexId) -> (Option<V>, Vec<E>, Vec<F>) {
         let vertex = match self.vertices.get(id) {
             Some(vertex) => vertex,
-            None => return (None, vec![]),
+            None => return (None, vec![], vec![]),
         };
 
         if vertex.target == id {
-            (self.vertices.remove(id).map(|v| v.value), vec![])
+            (self.vertices.remove(id).map(|v| v.value), vec![], vec![])
         } else {
             // Get edges to remove
             let mut targets = vec![];
@@ -264,10 +437,19 @@ impl<V, E> ComboMesh1<V, E> {
             }
 
             // Remove edges
-            let edge_values = targets.into_iter().flat_map(|target|
-                vec![self.remove_edge([id, target]), self.remove_edge([target, id])].into_iter().flatten())
-                .collect();
-            (self.vertices.remove(id).map(|v| v.value), edge_values)
+            let (edge_values, face_values) = targets.into_iter().map(|target| {
+                let fwd = self.remove_edge([id, target]);
+                let inv = self.remove_edge([target, id]);
+                let edge_values = vec![fwd.0, inv.0].into_iter().flatten().collect::<Vec<_>>();
+                let tri_values = fwd.1.into_iter().chain(inv.1).collect::<Vec<_>>();
+                (edge_values, tri_values)
+            })
+            .fold((vec![], vec![]), |(mut e_acc, mut f_acc), (e, f)| {
+                e_acc.extend(e);
+                f_acc.extend(f);
+                (e_acc, f_acc)
+            });
+            (self.vertices.remove(id).map(|v| v.value), edge_values, face_values)
         }
     }
 
@@ -288,6 +470,8 @@ impl<V, E> ComboMesh1<V, E> {
     /// Removes all vertices from the mesh.
     /// Removes all edges as a side-effect.
     pub fn clear_vertices(&mut self) {
+        self.tris.clear();
+        self.num_tris = 0;
         self.edges.clear();
         self.num_edges = 0;
         self.vertices.clear();
@@ -331,6 +515,7 @@ impl<V, E> ComboMesh1<V, E> {
                 self.edges.insert(id, Edge {
                     prev_target: prev,
                     next_target: next,
+                    opp: id.0[0],
                     value,
                 });
             };
@@ -352,15 +537,38 @@ impl<V, E> ComboMesh1<V, E> {
 
     /// Removes an edge from the mesh and returns the value that was there,
     /// or None if there was nothing there
-    pub fn remove_edge<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<E> {
+    pub fn remove_edge<EI: TryInto<EdgeId>>(&mut self, id: EI) -> (Option<E>, Vec<F>) {
+        // TODO: REMOVE APPROPRIATE FACES
         let id = match id.try_into() {
             Ok(id) => id,
-            Err(_) => return None,
+            Err(_) => return (None, vec![]),
         };
 
         if !self.vertices.contains_key(id.0[0]) || !self.vertices.contains_key(id.0[1]) {
-            return None;
+            return (None, vec![]);
         }
+
+        let tri_values = if let Some(edge) = self.edges.get(&id) {
+            if edge.opp != id.0[0] {
+                // Get tris to remove
+                let mut targets = vec![];
+                let mut target = edge.opp;
+                while targets.last() != Some(&edge.opp) {
+                    let tri = [id.0[0], id.0[1], target].try_into().ok().unwrap();
+                    target = self.tris[&tri].next_target(tri, id);
+                    targets.push(target);
+                }
+
+                // Remove tris
+                targets.into_iter().flat_map(|target| 
+                    self.remove_tri([id.0[0], id.0[1], target])
+                ).collect::<Vec<_>>()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
 
         match self.edges.get(&id.twin()).map(|e| e.value.as_ref()) {
             // Twin actually exists; just set value to None
@@ -369,7 +577,7 @@ impl<V, E> ComboMesh1<V, E> {
                 if old.is_some() {
                     self.num_edges -= 1;
                 }
-                old
+                (old, tri_values)
             }
 
             // Twin is phantom, so remove both edge and twin from map
@@ -395,11 +603,11 @@ impl<V, E> ComboMesh1<V, E> {
                 };
                 
                 delete_edge(id.twin());
-                delete_edge(id)
+                (delete_edge(id), tri_values)
             }
 
             // Twin isn't in map, and neither is the edge to remove
-            None => None,
+            None => (None, tri_values),
         }
     }
 
@@ -419,6 +627,8 @@ impl<V, E> ComboMesh1<V, E> {
 
     /// Removes all edges from the mesh.
     pub fn clear_edges(&mut self) {
+        self.tris.clear();
+        self.num_tris = 0;
         self.edges.clear();
         self.num_edges = 0;
         // Fix vertex-target links
@@ -427,26 +637,188 @@ impl<V, E> ComboMesh1<V, E> {
         }
     }
 
-    /// Gets a walker that starts at the given vertex.
-    /// Returns None if the vertex has no outgoing edge.
-    pub fn walker_from_vertex(&self, vertex: VertexId) -> Option<Walker<V, E>> {
-        Walker::from_vertex(self, vertex)
+    /// Adds a triangle to the mesh. Vertex order is important!
+    /// If the triangle was already there, this replaces the value.
+    /// Returns the previous value of the triangle, if there was one.
+    ///
+    /// # Panics
+    /// Panics if any vertex doesn't exist or if any two vertices are the same,
+    /// or if any of the required edges doesn't exist. Use `add_tri_and_edges`
+    /// to automatically add the required edges.
+    pub fn add_tri<FI: TryInto<TriId>>(&mut self, vertices: FI, value: F) -> Option<F> {
+        let id = vertices.try_into().ok().unwrap();
+
+        // Can't use entry().or_insert() because that would cause a
+        // mutable borrow and an immutable borrow to exist at the same time
+        if let Some(tri) = self.tris.get_mut(&id) {
+            let old = tri.value.take();
+            tri.value = Some(value);
+            if old.is_none() {
+                self.num_tris += 1;
+            }
+            old
+        } else {
+            self.num_tris += 1;
+
+            let mut insert_tri = |id: TriId, value: Option<F>| {
+                let mut prev_targets = [VertexId(0); 3];
+                let mut next_targets = [VertexId(0); 3];
+
+                for (i, (edge, opp)) in id.edges_and_opposite().iter().enumerate() {
+                    let target = self.edges[edge].opp;
+                    
+                    let (prev, next) = if target == edge.0[0] { // First tri from edge
+                        self.edges.get_mut(edge).unwrap().opp = *opp;
+                        (*opp, *opp)
+                    } else {
+                        let side = [edge.0[0], edge.0[1], target].try_into().ok().unwrap();
+                        let prev = self.tris[&side].prev_target(side, *edge);
+                        let next = target;
+                        let prev_tri = id.target(prev);
+                        let next_tri = id.target(next);
+                        *self.tris.get_mut(&prev_tri).unwrap().next_target_mut(prev_tri, *edge) = *opp;
+                        *self.tris.get_mut(&next_tri).unwrap().prev_target_mut(next_tri, *edge) = *opp;
+                        (prev, next)
+                    };
+
+                    prev_targets[i] = prev;
+                    next_targets[i] = next;
+                }
+
+                self.tris.insert(id, Tri {
+                    prev_targets,
+                    next_targets,
+                    value,
+                });
+            };
+
+            insert_tri(id, Some(value));
+            insert_tri(id.twin(), None);
+            None
+        }
     }
 
-    /// Gets a walker that starts at the given edge.
-    pub fn walker_from_edge<EI: TryInto<EdgeId>>(&self, edge: EI) -> Walker<V, E> {
-        Walker::new(self, edge)
+    /// Extends the triangle list with an iterator.
+    ///
+    /// # Panics
+    /// Panics if any vertex doesn't exist or if any two vertices are the same
+    /// in any of the triangles.
+    pub fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, F)>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|(id, value)| { self.add_tri(id, value); })
+    }
+
+    /// Removes an triangle from the mesh and returns the value that was there,
+    /// or None if there was nothing there
+    pub fn remove_tri<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F> {
+        let id = match id.try_into() {
+            Ok(id) => id,
+            Err(_) => return None,
+        };
+
+        if !self.vertices.contains_key(id.0[0]) || !self.vertices.contains_key(id.0[1]) || !self.vertices.contains_key(id.0[2]){
+            return None;
+        }
+
+        match self.tris.get(&id.twin()).map(|f| f.value.as_ref()) {
+            // Twin actually exists; just set value to None
+            Some(Some(_)) => {
+                let old = self.tris.get_mut(&id).unwrap().value.take();
+                if old.is_some() {
+                    self.num_tris -= 1;
+                }
+                old
+            }
+
+            // Twin is phantom, so remove both tri and twin from map
+            Some(None) => {
+                // Twin is phantom, so this tri actually exists.
+                self.num_tris -= 1;
+
+                let mut delete_tri = |id: TriId| {
+                    for (i, (edge, opp)) in id.edges_and_opposite().iter().enumerate() {
+                        let tri = &self.tris[&id];
+                        let prev = tri.prev_targets[i];
+                        let next = tri.next_targets[i];
+                        let source = self.edges.get_mut(&edge).unwrap();
+                        let prev_tri = id.target(prev);
+                        let next_tri = id.target(next);
+                        *self.tris.get_mut(&prev_tri).unwrap().next_target_mut(prev_tri, *edge) = next;
+                        *self.tris.get_mut(&next_tri).unwrap().prev_target_mut(next_tri, *edge) = prev;
+
+                        if *opp == next { // this was the last tri from the edge
+                            source.opp = edge.0[0];
+                        } else if *opp == source.opp {
+                            source.opp = next;
+                        }
+                    }
+                    
+                    self.tris.remove(&id).and_then(|f| f.value)
+                };
+                
+                delete_tri(id.twin());
+                delete_tri(id)
+            }
+
+            // Twin isn't in map, and neither is the tri to remove
+            None => None,
+        }
+    }
+
+    /// Removes a list of triangles.
+    pub fn remove_tris<FI: TryInto<TriId>, I: IntoIterator<Item = FI>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|id| { self.remove_tri(id); })
+    }
+
+    /// Keeps only the triangles that satisfy a predicate
+    pub fn retain_tris<P: FnMut(TriId, &F) -> bool>(&mut self, mut predicate: P) {
+        let to_remove = self.tris()
+            .filter(|(id, f)| !predicate(**id, *f))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        self.remove_tris(to_remove);
+    }
+
+    /// Removes all triangles from the mesh.
+    pub fn clear_tris(&mut self) {
+        self.tris.clear();
+        self.num_tris = 0;
+        // Fix edge-target links
+        for (id, edge) in &mut self.edges {
+            edge.opp = id.0[0];
+        }
+    }
+
+    /// Gets an edge walker that starts at the given vertex.
+    /// Returns None if the vertex has no outgoing edge.
+    pub fn edge_walker_from_vertex(&self, vertex: VertexId) -> Option<EdgeWalker<V, E, F>> {
+        EdgeWalker::from_vertex(self, vertex)
+    }
+
+    /// Gets an edge walker that starts at the given edge.
+    pub fn edge_walker_from_edge<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeWalker<V, E, F> {
+        EdgeWalker::new(self, edge)
+    }
+
+    /// Gets a triangle walker that starts at the given edge.
+    /// Returns None if the edge has no triangle.
+    pub fn tri_walker_from_edge<EI: TryInto<EdgeId>>(&self, edge: EI) -> Option<TriWalker<V, E, F>> {
+        TriWalker::from_edge(self, edge)
+    }
+
+    /// Gets a triangle walker that starts at the given edge with the given opposite vertex.
+    pub fn tri_walker_from_tri<EI: TryInto<EdgeId>>(&self, edge: EI, opp: VertexId) -> TriWalker<V, E, F> {
+        TriWalker::new(self, edge, opp)
     }
 }
 
-/// A walker for navigating a simplicial 1-complex.
+/// A walker for navigating a simplicial 2-complex by edge
 #[derive(Debug)]
-pub struct Walker<'a, V, E> {
-    mesh: &'a ComboMesh1<V, E>,
+pub struct EdgeWalker<'a, V, E, F> {
+    mesh: &'a ComboMesh2<V, E, F>,
     edge: EdgeId,
 }
 
-impl<'a, V, E> Clone for Walker<'a, V, E> {
+impl<'a, V, E, F> Clone for EdgeWalker<'a, V, E, F> {
     fn clone(&self) -> Self {
         Self {
             mesh: self.mesh,
@@ -455,10 +827,10 @@ impl<'a, V, E> Clone for Walker<'a, V, E> {
     }
 }
 
-impl<'a, V, E> Copy for Walker<'a, V, E> {}
+impl<'a, V, E, F> Copy for EdgeWalker<'a, V, E, F> {}
 
-impl<'a, V, E> Walker<'a, V, E> {
-    fn new<EI: TryInto<EdgeId>>(mesh: &'a ComboMesh1<V, E>, edge: EI) -> Self {
+impl<'a, V, E, F> EdgeWalker<'a, V, E, F> {
+    fn new<EI: TryInto<EdgeId>>(mesh: &'a ComboMesh2<V, E, F>, edge: EI) -> Self {
         Self {
             mesh,
             edge: edge.try_into().ok().unwrap(),
@@ -466,12 +838,12 @@ impl<'a, V, E> Walker<'a, V, E> {
     }
 
     /// Doesn't check that the starting edge actually exists
-    fn from_vertex_less_checked(mesh: &'a ComboMesh1<V, E>, vertex: VertexId) -> Option<Self> {
+    fn from_vertex_less_checked(mesh: &'a ComboMesh2<V, E, F>, vertex: VertexId) -> Option<Self> {
         ([vertex, mesh.vertices[vertex].target].try_into().ok() as Option<EdgeId>)
             .map(|edge| Self::new(mesh, edge))
     }
 
-    fn from_vertex(mesh: &'a ComboMesh1<V, E>, vertex: VertexId) -> Option<Self> {
+    fn from_vertex(mesh: &'a ComboMesh2<V, E, F>, vertex: VertexId) -> Option<Self> {
         let start = match [vertex, mesh.vertices[vertex].target].try_into() {
             Ok(start) => start,
             Err(_) => return None,
@@ -488,7 +860,7 @@ impl<'a, V, E> Walker<'a, V, E> {
     }
     
     /// A walker that will not be used
-    fn dummy(mesh: &'a ComboMesh1<V, E>) -> Self {
+    fn dummy(mesh: &'a ComboMesh2<V, E, F>) -> Self {
         Self {
             mesh,
             edge: EdgeId([VertexId(0), VertexId(1)])
@@ -496,7 +868,7 @@ impl<'a, V, E> Walker<'a, V, E> {
     }
 
     /// Get the mesh that the walker navigates
-    pub fn mesh(&self) -> &ComboMesh1<V, E> {
+    pub fn mesh(&self) -> &ComboMesh2<V, E, F> {
         self.mesh
     }
 
@@ -603,17 +975,164 @@ impl<'a, V, E> Walker<'a, V, E> {
         } {}
         if found { Some(self) } else { None }
     }
+
+    pub fn tri_walker(self) -> Option<TriWalker<'a, V, E, F>> {
+        TriWalker::from_edge(self.mesh, self.edge)
+    }
+}
+
+/// A walker for navigating a simplicial 2-complex by triangle
+#[derive(Debug)]
+pub struct TriWalker<'a, V, E, F> {
+    mesh: &'a ComboMesh2<V, E, F>,
+    edge: EdgeId,
+    opp: VertexId,
+}
+
+impl<'a, V, E, F> Clone for TriWalker<'a, V, E, F> {
+    fn clone(&self) -> Self {
+        Self {
+            mesh: self.mesh,
+            edge: self.edge,
+            opp: self.opp,
+        }
+    }
+}
+
+impl<'a, V, E, F> Copy for TriWalker<'a, V, E, F> {}
+
+impl<'a, V, E, F> TriWalker<'a, V, E, F> {
+    fn new<EI: TryInto<EdgeId>>(mesh: &'a ComboMesh2<V, E, F>, edge: EI, opp: VertexId) -> Self {
+        Self {
+            mesh,
+            edge: edge.try_into().ok().unwrap(),
+            opp,
+        }
+    }
+
+    fn from_edge<EI: TryInto<EdgeId>>(mesh: &'a ComboMesh2<V, E, F>, edge: EI) -> Option<Self> {
+        let edge = edge.try_into().ok().unwrap();
+        let start = match [edge.0[0], edge.0[1], mesh.edges[&edge].opp].try_into() {
+            Ok(start) => start,
+            Err(_) => return None,
+        };
+        let mut tri = start;
+        while mesh.tris[&tri].value.is_none() {
+            tri = tri.target(mesh.tris[&tri].next_target(tri, edge));
+            if tri == start {
+                return None;
+            }
+        }
+
+        let index = tri.index(edge.0[0]);
+        let (edge, opp) = tri.edges_and_opposite()[index];
+        Some(Self::new(mesh, edge, opp))
+    }
+    
+    /// A walker that will not be used
+    fn dummy(mesh: &'a ComboMesh2<V, E, F>) -> Self {
+        Self {
+            mesh,
+            edge: EdgeId([VertexId(0), VertexId(1)]),
+            opp: VertexId(2),
+        }
+    }
+
+    /// Get the mesh that the walker navigates
+    pub fn mesh(&self) -> &ComboMesh2<V, E, F> {
+        self.mesh
+    }
+
+    /// Get the current vertex id,
+    /// which is the source of the current tri edge.
+    pub fn vertex(&self) -> VertexId {
+        self.edge.0[0]
+    }
+
+    /// Get the vertex id of the target of the current tri edge.
+    pub fn second(&self) -> VertexId {
+        self.edge.0[1]
+    }
+
+    /// Gets the current edge id
+    pub fn edge(&self) -> EdgeId {
+        self.edge
+    }
+
+    /// Gets the opposite vertex of the current triangle
+    pub fn opp(&self) -> VertexId {
+        self.opp
+    }
+
+    /// Gets the current triangle id
+    pub fn tri(&self) -> TriId {
+        TriId(TriId::canonicalize([self.vertex(), self.second(), self.opp()]))
+    }
+
+    /// Reverse the walker's direction so its
+    /// current triangle is the opposite triangle without changing the opposite vertex
+    /// Returns None if the resulting triangle doesn't exist.
+    pub fn twin(mut self) -> Option<Self> {
+        self.edge = self.edge.twin();
+        if self.mesh.tri(self.tri()).is_some() {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    /// Sets the current edge to the next one in the same triangle.
+    pub fn next_edge(mut self) -> Self {
+        let (edge, opp) = (EdgeId([self.second(), self.opp()]), self.vertex());
+        self.edge = edge;
+        self.opp = opp;
+        self
+    }
+
+    /// Sets the current edge to the previous one in the same triangle.
+    pub fn prev_edge(mut self) -> Self {
+        let (edge, opp) = (EdgeId([self.opp(), self.vertex()]), self.second());
+        self.edge = edge;
+        self.opp = opp;
+        self
+    }
+
+    /// Sets the current opposite vertex to the next one with the same edge.
+    pub fn next_opp(mut self) -> Self {
+        while {
+            let tri = self.tri();
+            self.opp = self.mesh.tris[&self.tri()].next_target(tri, self.edge);
+            self.mesh.tris[&self.tri()].value.is_none()
+        } {}
+        self
+    }
+
+    /// Sets the current opposite vertex to the previoud one with the same edge.
+    pub fn prev_opp(mut self) -> Self {
+        while {
+            let tri = self.tri();
+            self.opp = self.mesh.tris[&self.tri()].prev_target(tri, self.edge);
+            self.mesh.tris[&self.tri()].value.is_none()
+        } {}
+        self
+    }
+
+    /// Turns this into an edge walker that starts
+    /// at the current edge.
+    pub fn edge_walker(self) -> EdgeWalker<'a, V, E, F> {
+        EdgeWalker::new(self.mesh, self.edge)
+    }
 }
 
 /// An iterator over the outgoing edges of a vertex.
 #[derive(Clone, Debug)]
-pub struct VertexEdgesOut<'a, V, E> {
-    walker: Walker<'a, V, E>,
+pub struct VertexEdgesOut<'a, V, E, F> {
+    walker: EdgeWalker<'a, V, E, F>,
     start_target: VertexId,
     finished: bool,
 }
 
-impl<'a, V, E> Iterator for VertexEdgesOut<'a, V, E> {
+impl<'a, V, E, F> Iterator for VertexEdgesOut<'a, V, E, F> {
     type Item = EdgeId;
     
     fn next(&mut self) -> Option<Self::Item> {
@@ -632,13 +1151,13 @@ impl<'a, V, E> Iterator for VertexEdgesOut<'a, V, E> {
 
 /// An iterator over the incoming edges of a vertex.
 #[derive(Clone, Debug)]
-pub struct VertexEdgesIn<'a, V, E> {
-    walker: Walker<'a, V, E>,
+pub struct VertexEdgesIn<'a, V, E, F> {
+    walker: EdgeWalker<'a, V, E, F>,
     start_source: VertexId,
     finished: bool,
 }
 
-impl<'a, V, E> Iterator for VertexEdgesIn<'a, V, E> {
+impl<'a, V, E, F> Iterator for VertexEdgesIn<'a, V, E, F> {
     type Item = EdgeId;
     
     fn next(&mut self) -> Option<Self::Item> {
@@ -655,7 +1174,33 @@ impl<'a, V, E> Iterator for VertexEdgesIn<'a, V, E> {
     }
 }
 
-impl<V, E> Index<VertexId> for ComboMesh1<V, E> {
+/// An iterator over the triangles of an edge.
+#[derive(Clone, Debug)]
+pub struct EdgeTris<'a, V, E, F> {
+    walker: TriWalker<'a, V, E, F>,
+    start_opp: VertexId,
+    finished: bool,
+}
+
+impl<'a, V, E, F> Iterator for EdgeTris<'a, V, E, F> {
+    type Item = TriId;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        let tri = self.walker.tri();
+        self.walker = self.walker.next_opp();
+        if self.walker.opp() == self.start_opp {
+            self.finished = true;
+        }
+        Some(tri)
+    }
+}
+
+
+impl<V, E, F> Index<VertexId> for ComboMesh2<V, E, F> {
     type Output = V;
 
     fn index(&self, index: VertexId) -> &Self::Output {
@@ -663,13 +1208,13 @@ impl<V, E> Index<VertexId> for ComboMesh1<V, E> {
     }
 }
 
-impl<V, E> IndexMut<VertexId> for ComboMesh1<V, E> {
+impl<V, E, F> IndexMut<VertexId> for ComboMesh2<V, E, F> {
     fn index_mut(&mut self, index: VertexId) -> &mut Self::Output {
         self.vertex_mut(index).unwrap()
     }
 }
 
-impl<V, E> Index<[VertexId; 2]> for ComboMesh1<V, E> {
+impl<V, E, F> Index<[VertexId; 2]> for ComboMesh2<V, E, F> {
     type Output = E;
 
     fn index(&self, index: [VertexId; 2]) -> &Self::Output {
@@ -677,13 +1222,13 @@ impl<V, E> Index<[VertexId; 2]> for ComboMesh1<V, E> {
     }
 }
 
-impl<V, E> IndexMut<[VertexId; 2]> for ComboMesh1<V, E> {
+impl<V, E, F> IndexMut<[VertexId; 2]> for ComboMesh2<V, E, F> {
     fn index_mut(&mut self, index: [VertexId; 2]) -> &mut Self::Output {
         self.edge_mut(index).unwrap()
     }
 }
 
-impl<V, E> Index<EdgeId> for ComboMesh1<V, E> {
+impl<V, E, F> Index<EdgeId> for ComboMesh2<V, E, F> {
     type Output = E;
 
     fn index(&self, index: EdgeId) -> &Self::Output {
@@ -691,20 +1236,48 @@ impl<V, E> Index<EdgeId> for ComboMesh1<V, E> {
     }
 }
 
-impl<V, E> IndexMut<EdgeId> for ComboMesh1<V, E> {
+impl<V, E, F> IndexMut<EdgeId> for ComboMesh2<V, E, F> {
     fn index_mut(&mut self, index: EdgeId) -> &mut Self::Output {
         self.edge_mut(index).unwrap()
     }
 }
 
-/// A position-containing edge mesh
-pub type Mesh1<V, E, D> = ComboMesh1<(VecN<D>, V), E>;
+impl<V, E, F> Index<[VertexId; 3]> for ComboMesh2<V, E, F> {
+    type Output = F;
 
-/// A 2D-position-containing edge mesh
-pub type Mesh12<V, E> = Mesh1<V, E, U2>;
+    fn index(&self, index: [VertexId; 3]) -> &Self::Output {
+        self.tri(index).unwrap()
+    }
+}
 
-/// A 3D-position-containing edge mesh
-pub type Mesh13<V, E> = Mesh1<V, E, U3>;
+impl<V, E, F> IndexMut<[VertexId; 3]> for ComboMesh2<V, E, F> {
+    fn index_mut(&mut self, index: [VertexId; 3]) -> &mut Self::Output {
+        self.tri_mut(index).unwrap()
+    }
+}
+
+impl<V, E, F> Index<TriId> for ComboMesh2<V, E, F> {
+    type Output = F;
+
+    fn index(&self, index: TriId) -> &Self::Output {
+        self.tri(index).unwrap()
+    }
+}
+
+impl<V, E, F> IndexMut<TriId> for ComboMesh2<V, E, F> {
+    fn index_mut(&mut self, index: TriId) -> &mut Self::Output {
+        self.tri_mut(index).unwrap()
+    }
+}
+
+/// A position-containing tri mesh
+pub type Mesh2<V, E, F, D> = ComboMesh2<(VecN<D>, V), E, F>;
+
+/// A 2D-position-containing tri mesh
+pub type Mesh22<V, E, F> = Mesh2<V, E, F, U2>;
+
+/// A 3D-position-containing tri mesh
+pub type Mesh23<V, E, F> = Mesh2<V, E, F, U3>;
 
 #[cfg(test)]
 mod tests {
@@ -714,7 +1287,7 @@ mod tests {
     use fnv::FnvHashSet;
 
     #[track_caller]
-    fn assert_vertices<V: Clone + Debug + Eq + Hash, E, I: IntoIterator<Item = (VertexId, V)>>(mesh: &ComboMesh1<V, E>, vertices: I) {
+    fn assert_vertices<V: Clone + Debug + Eq + Hash, E, F, I: IntoIterator<Item = (VertexId, V)>>(mesh: &ComboMesh2<V, E, F>, vertices: I) {
         let result = mesh.vertices().map(|(id, v)| (*id, v.clone()))
             .collect::<FnvHashSet<_>>();
         let expect = vertices.into_iter().collect::<FnvHashSet<_>>();
@@ -723,7 +1296,7 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_edges<V, E: Clone + Debug + Eq + Hash, EI: TryInto<EdgeId>, I: IntoIterator<Item = (EI, E)>>(mesh: &ComboMesh1<V, E>, edges: I) {
+    fn assert_edges<V, E: Clone + Debug + Eq + Hash, EI: TryInto<EdgeId>, F, I: IntoIterator<Item = (EI, E)>>(mesh: &ComboMesh2<V, E, F>, edges: I) {
         let result = mesh.edges().map(|(id, e)| (*id, e.clone()))
             .collect::<FnvHashSet<_>>();
         let expect = edges.into_iter()
@@ -736,7 +1309,7 @@ mod tests {
 
     #[test]
     fn test_default() {
-        let mesh = ComboMesh1::<(), ()>::default();
+        let mesh = ComboMesh2::<(), (), ()>::default();
         assert!(mesh.vertices.is_empty());
         assert!(mesh.edges.is_empty());
         assert_eq!(mesh.num_edges(), 0);
@@ -744,7 +1317,7 @@ mod tests {
 
     #[test]
     fn test_add_vertex() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let id = mesh.add_vertex(3);
         assert_eq!(mesh.vertex(id), Some(&3));
 
@@ -755,7 +1328,7 @@ mod tests {
 
     #[test]
     fn test_extend_vertices() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(mesh.vertex(ids[0]), Some(&3));
         assert_eq!(mesh.vertex(ids[1]), Some(&6));
@@ -775,7 +1348,7 @@ mod tests {
 
     #[test]
     fn test_add_edge() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let prev = mesh.add_edge([ids[1], ids[3]], 54);
         assert_eq!(prev, None);
@@ -801,14 +1374,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_add_edge_bad() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         mesh.add_edge([ids[1], ids[1]], 4);
     }
 
     #[test]
     fn test_extend_edges() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -827,7 +1400,7 @@ mod tests {
 
     #[test]
     fn test_remove_vertex() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -865,7 +1438,7 @@ mod tests {
 
     #[test]
     fn test_remove_add_vertex() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -893,7 +1466,7 @@ mod tests {
 
     #[test]
     fn test_remove_edge() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -929,7 +1502,7 @@ mod tests {
 
     #[test]
     fn test_remove_add_edge() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -962,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_clear_vertices() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -980,7 +1553,7 @@ mod tests {
 
     #[test]
     fn test_clear_edges() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -998,7 +1571,7 @@ mod tests {
 
     #[test]
     fn test_walker() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -1009,9 +1582,9 @@ mod tests {
         ];
         mesh.extend_edges(edges.clone());
 
-        assert!(mesh.walker_from_vertex(ids[4]).is_none());
+        assert!(mesh.edge_walker_from_vertex(ids[4]).is_none());
 
-        let walker = mesh.walker_from_edge([ids[3], ids[1]]);
+        let walker = mesh.edge_walker_from_edge([ids[3], ids[1]]);
         assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
         assert_eq!(walker.vertex(), ids[3]);
         assert_eq!(walker.target(), ids[1]);
@@ -1045,7 +1618,7 @@ mod tests {
 
         assert!(walker.twin().is_none());
 
-        let walker = mesh.walker_from_edge([ids[0], ids[3]]);
+        let walker = mesh.edge_walker_from_edge([ids[0], ids[3]]);
         assert!(walker.backward().is_none());
 
         let walker = walker.next_in();
@@ -1058,7 +1631,7 @@ mod tests {
 
     #[test]
     fn test_vertex_edges_out() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
@@ -1084,7 +1657,7 @@ mod tests {
 
     #[test]
     fn test_vertex_edges_in() {
-        let mut mesh = ComboMesh1::<usize, usize>::default();
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[0], ids[3]], 5),
