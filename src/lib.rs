@@ -8,12 +8,12 @@ type Vec2 = Vector2<f64>;
 type Vec3 = Vector3<f64>;
 type VecN<D> = VectorN<f64, D>;
 
+pub mod edge;
 pub mod mesh_0;
 pub mod mesh_1;
 pub mod mesh_2;
-pub mod vertex;
-pub mod edge;
 pub mod tri;
+pub mod vertex;
 
 pub use mesh_0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh_1::{ComboMesh1, Mesh1, Mesh12, Mesh13};
@@ -49,7 +49,7 @@ macro_rules! impl_integer_id {
             fn id(&self) -> u64 {
                 self.0
             }
-            
+
             fn id32(&self) -> u32 {
                 self.0 as u32
             }
@@ -58,5 +58,5 @@ macro_rules! impl_integer_id {
                 $type(id)
             }
         }
-    }
+    };
 }

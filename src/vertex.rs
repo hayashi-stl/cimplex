@@ -18,19 +18,23 @@ impl VertexId {
     }
 }
 
-pub type Vertices<'a, VT> = Map<idmap::Iter<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
-    for<'b> fn((&'b VertexId, &'b VT)) -> (&'b VertexId, &'b <VT as Vertex>::V)>;
-pub type VerticesMut<'a, VT> = Map<idmap::IterMut<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
-    for<'b> fn((&'b VertexId, &'b mut VT)) -> (&'b VertexId, &'b mut <VT as Vertex>::V)>;
+pub type Vertices<'a, VT> = Map<
+    idmap::Iter<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
+    for<'b> fn((&'b VertexId, &'b VT)) -> (&'b VertexId, &'b <VT as Vertex>::V),
+>;
+pub type VerticesMut<'a, VT> = Map<
+    idmap::IterMut<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
+    for<'b> fn((&'b VertexId, &'b mut VT)) -> (&'b VertexId, &'b mut <VT as Vertex>::V),
+>;
 
 macro_rules! V {
-    () => { <Self::Vertex as Vertex>::V };
+    () => {
+        <Self::Vertex as Vertex>::V
+    };
 }
 
 /// For simplicial complexes that can have vertices, that is, all of them
-pub trait HasVertices:
-    internal::HasVertices + RemoveVertexHigher + ClearVerticesHigher
-{
+pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVerticesHigher {
     /// Gets the number of vertices.
     fn num_vertices(&self) -> usize {
         self.vertices_r().len()
@@ -45,7 +49,9 @@ pub trait HasVertices:
     /// Iterates mutably over the vertices of this mesh.
     /// Gives (id, value) pairs
     fn vertices_mut(&mut self) -> VerticesMut<Self::Vertex> {
-        self.vertices_r_mut().iter_mut().map(|(id, v)| (id, v.value_mut()))
+        self.vertices_r_mut()
+            .iter_mut()
+            .map(|(id, v)| (id, v.value_mut()))
     }
 
     /// Gets the value of the vertex at a specific id.
@@ -64,14 +70,19 @@ pub trait HasVertices:
     fn add_vertex(&mut self, value: V!()) -> VertexId {
         let id = VertexId(self.next_vertex_id());
         *self.next_vertex_id_mut() += 1;
-        debug_assert!(self.vertices_r_mut().insert(id, <Self::Vertex as Vertex>::new(id, value)).is_none());
+        debug_assert!(self
+            .vertices_r_mut()
+            .insert(id, <Self::Vertex as Vertex>::new(id, value))
+            .is_none());
         id
     }
 
     /// Extends the vertex list with an iterator and returns a `Vec`
     /// of the vertex ids that are created in order.
     fn extend_vertices<I: IntoIterator<Item = V!()>>(&mut self, iter: I) -> Vec<VertexId> {
-        iter.into_iter().map(|value| self.add_vertex(value)).collect()
+        iter.into_iter()
+            .map(|value| self.add_vertex(value))
+            .collect()
     }
 
     /// Removes a vertex from the mesh.
@@ -85,12 +96,15 @@ pub trait HasVertices:
 
     /// Removes a list of vertices.
     fn remove_vertices<I: IntoIterator<Item = VertexId>>(&mut self, iter: I) {
-        iter.into_iter().for_each(|id| { self.remove_vertex(id); })
+        iter.into_iter().for_each(|id| {
+            self.remove_vertex(id);
+        })
     }
 
     /// Keeps only the vertices that satisfy a predicate
     fn retain_vertices<P: FnMut(VertexId, &V!()) -> bool>(&mut self, mut predicate: P) {
-        let to_remove = self.vertices()
+        let to_remove = self
+            .vertices()
             .filter(|(id, v)| !predicate(**id, *v))
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();

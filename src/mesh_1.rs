@@ -1,17 +1,17 @@
 use edge::HasEdges;
+use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-use typenum::{U2, U3};
+#[cfg(feature = "serde_")]
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
-use fnv::FnvHashMap;
-#[cfg(feature = "serde_")]
-use serde::{Serialize, Deserialize};
+use typenum::{U2, U3};
 
-use crate::{VecN, edge, vertex::HasVertices};
-use crate::vertex::VertexId;
 use crate::edge::EdgeId;
+use crate::vertex::VertexId;
+use crate::{edge, vertex::HasVertices, VecN};
 
-use internal::{HigherVertex, Edge};
+use internal::{Edge, HigherVertex};
 
 /// A combinatorial simplicial 1-complex, containing only vertices and (oriented) edges.
 /// Also known as an edge mesh.
@@ -55,12 +55,12 @@ impl<V, E> ComboMesh1<V, E> {
 }
 
 pub(crate) mod internal {
-    use crate::ComboMesh1;
-    use crate::vertex::internal::{RemoveVertexHigher, ClearVerticesHigher};
-    use crate::edge::internal::{RemoveEdgeHigher, ClearEdgesHigher, Link};
+    use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
+    use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
-    
+    use crate::ComboMesh1;
+
     //// A vertex of an edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
@@ -70,12 +70,11 @@ pub(crate) mod internal {
         target: VertexId,
         value: V,
     }
-    crate::impl_vertex!(HigherVertex<V>, new |id, value| {
-        HigherVertex {
-            target: id,
-            value,
-        }
-    });
+    crate::impl_vertex!(
+        HigherVertex<V>,
+        new | id,
+        value | { HigherVertex { target: id, value } }
+    );
     crate::impl_higher_vertex!(HigherVertex<V>);
 
     /// An edge of an edge mesh
@@ -90,11 +89,15 @@ pub(crate) mod internal {
         /// ensuring that every edge has a twin.
         value: Option<E>,
     }
-    crate::impl_edge!(Edge<E>, new |_id, link, value| Edge { link, value });
+    crate::impl_edge!(Edge<E>, new | _id, link, value | Edge { link, value });
 
     impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.remove_edges(self.vertex_edges_out(vertex).chain(self.vertex_edges_in(vertex)).collect::<Vec<_>>());
+            self.remove_edges(
+                self.vertex_edges_out(vertex)
+                    .chain(self.vertex_edges_in(vertex))
+                    .collect::<Vec<_>>(),
+            );
         }
     }
 
@@ -126,14 +129,19 @@ pub type Mesh13<V, E> = Mesh1<V, E, U3>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Debug;
-    use std::hash::Hash;
     use fnv::FnvHashSet;
     use std::convert::TryInto;
+    use std::fmt::Debug;
+    use std::hash::Hash;
 
     #[track_caller]
-    fn assert_vertices<V: Clone + Debug + Eq + Hash, E, I: IntoIterator<Item = (VertexId, V)>>(mesh: &ComboMesh1<V, E>, vertices: I) {
-        let result = mesh.vertices().map(|(id, v)| (*id, v.clone()))
+    fn assert_vertices<V: Clone + Debug + Eq + Hash, E, I: IntoIterator<Item = (VertexId, V)>>(
+        mesh: &ComboMesh1<V, E>,
+        vertices: I,
+    ) {
+        let result = mesh
+            .vertices()
+            .map(|(id, v)| (*id, v.clone()))
             .collect::<FnvHashSet<_>>();
         let expect = vertices.into_iter().collect::<FnvHashSet<_>>();
 
@@ -141,10 +149,21 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_edges<V, E: Clone + Debug + Eq + Hash, EI: TryInto<EdgeId>, I: IntoIterator<Item = (EI, E)>>(mesh: &ComboMesh1<V, E>, edges: I) {
-        let result = mesh.edges().map(|(id, e)| (*id, e.clone()))
+    fn assert_edges<
+        V,
+        E: Clone + Debug + Eq + Hash,
+        EI: TryInto<EdgeId>,
+        I: IntoIterator<Item = (EI, E)>,
+    >(
+        mesh: &ComboMesh1<V, E>,
+        edges: I,
+    ) {
+        let result = mesh
+            .edges()
+            .map(|(id, e)| (*id, e.clone()))
             .collect::<FnvHashSet<_>>();
-        let expect = edges.into_iter()
+        let expect = edges
+            .into_iter()
             .map(|(vertices, e)| (vertices.try_into().ok().unwrap(), e))
             .collect::<FnvHashSet<_>>();
 
@@ -181,14 +200,17 @@ mod tests {
         assert_eq!(mesh.vertex(ids[3]), Some(&2));
 
         let ids2 = mesh.extend_vertices(vec![5, 8]);
-        assert_vertices(&mesh, vec![
-            (ids[0], 3),
-            (ids[1], 6),
-            (ids[2], 9),
-            (ids[3], 2),
-            (ids2[0], 5),
-            (ids2[1], 8),
-        ]);
+        assert_vertices(
+            &mesh,
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids2[0], 5),
+                (ids2[1], 8),
+            ],
+        );
     }
 
     #[test]
@@ -257,28 +279,28 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.remove_vertex(ids[4]); // edgeless vertex
-        assert_vertices(&mesh, vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[1], ids[3]], 3),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-        ]);
+        assert_vertices(
+            &mesh,
+            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)],
+        );
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[1], ids[3]], 3),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+            ],
+        );
 
         mesh.remove_vertex(ids[1]); // vertex with edge
         assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
 
         mesh.remove_vertex(ids[4]); // nonexistent vertex
         assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
     }
 
     #[test]
@@ -296,17 +318,11 @@ mod tests {
 
         mesh.remove_vertex(ids[1]);
         assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
 
         let id2 = mesh.add_vertex(6);
         assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2), (id2, 6)]);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
     }
 
     #[test]
@@ -323,26 +339,35 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.remove_edge([ids[1], ids[3]]); // first outgoing edge from vertex
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+            ],
+        );
 
         mesh.remove_edge([ids[1], ids[2]]); // last outgoing edge from vertex
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+            ],
+        );
 
         mesh.remove_edge([ids[3], ids[0]]); // nonexistent edge
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+            ],
+        );
     }
 
     #[test]
@@ -359,23 +384,29 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.remove_edge([ids[1], ids[3]]); // first outgoing edge from vertex
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+            ],
+        );
 
         mesh.add_edge([ids[1], ids[0]], 4);
         mesh.add_edge([ids[1], ids[3]], 6);
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-            ([ids[1], ids[0]], 4),
-            ([ids[1], ids[3]], 6),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[3]], 5),
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+                ([ids[1], ids[0]], 4),
+                ([ids[1], ids[3]], 6),
+            ],
+        );
     }
 
     #[test]
@@ -410,7 +441,10 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.clear_edges();
-        assert_vertices(&mesh, vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)]);
+        assert_vertices(
+            &mesh,
+            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)],
+        );
         assert_edges(&mesh, vec![] as Vec<(EdgeId, _)>);
     }
 
@@ -442,7 +476,7 @@ mod tests {
 
         let walker = walker.twin().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[3]]));
-        
+
         let walker = walker.twin().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
 
@@ -492,11 +526,15 @@ mod tests {
         assert_eq!(set, expected);
 
         let set = mesh.vertex_edges_out(ids[2]).collect::<FnvHashSet<_>>();
-        let expected = vec![EdgeId([ids[2], ids[3]])].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[2], ids[3]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
         let set = mesh.vertex_edges_out(ids[1]).collect::<FnvHashSet<_>>();
-        let expected = vec![EdgeId([ids[1], ids[3]]), EdgeId([ids[1], ids[2]])].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[1], ids[3]]), EdgeId([ids[1], ids[2]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 
@@ -517,11 +555,15 @@ mod tests {
         assert_eq!(set, expected);
 
         let set = mesh.vertex_edges_in(ids[2]).collect::<FnvHashSet<_>>();
-        let expected = vec![EdgeId([ids[1], ids[2]])].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[1], ids[2]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
         let set = mesh.vertex_edges_in(ids[3]).collect::<FnvHashSet<_>>();
-        let expected = vec![EdgeId([ids[0], ids[3]]), EdgeId([ids[1], ids[3]])].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[0], ids[3]]), EdgeId([ids[1], ids[3]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 }
