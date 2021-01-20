@@ -54,7 +54,7 @@ impl<V, E> ComboMesh1<V, E> {
     }
 }
 
-mod internal {
+pub(crate) mod internal {
     use crate::ComboMesh1;
     use crate::vertex::internal::{RemoveVertexHigher, ClearVerticesHigher};
     use crate::edge::internal::{RemoveEdgeHigher, ClearEdgesHigher, Link};

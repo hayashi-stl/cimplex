@@ -33,38 +33,38 @@ pub trait HasVertices:
 {
     /// Gets the number of vertices.
     fn num_vertices(&self) -> usize {
-        self.vertices_raw().len()
+        self.vertices_r().len()
     }
 
     /// Iterates over the vertices of this mesh.
     /// Gives (id, value) pairs
     fn vertices(&self) -> Vertices<Self::Vertex> {
-        self.vertices_raw().iter().map(|(id, v)| (id, v.value()))
+        self.vertices_r().iter().map(|(id, v)| (id, v.value()))
     }
 
     /// Iterates mutably over the vertices of this mesh.
     /// Gives (id, value) pairs
     fn vertices_mut(&mut self) -> VerticesMut<Self::Vertex> {
-        self.vertices_raw_mut().iter_mut().map(|(id, v)| (id, v.value_mut()))
+        self.vertices_r_mut().iter_mut().map(|(id, v)| (id, v.value_mut()))
     }
 
     /// Gets the value of the vertex at a specific id.
     /// Returns None if not found.
     fn vertex(&self, id: VertexId) -> Option<&V!()> {
-        self.vertices_raw().get(id).map(|v| v.value())
+        self.vertices_r().get(id).map(|v| v.value())
     }
 
     /// Gets the value of the vertex at a specific id mutably.
     /// Returns None if not found.
     fn vertex_mut(&mut self, id: VertexId) -> Option<&mut V!()> {
-        self.vertices_raw_mut().get_mut(id).map(|v| v.value_mut())
+        self.vertices_r_mut().get_mut(id).map(|v| v.value_mut())
     }
 
     /// Adds a vertex to the mesh and returns the id.
     fn add_vertex(&mut self, value: V!()) -> VertexId {
         let id = VertexId(self.next_vertex_id());
         *self.next_vertex_id_mut() += 1;
-        debug_assert!(self.vertices_raw_mut().insert(id, <Self::Vertex as Vertex>::new(id, value)).is_none());
+        debug_assert!(self.vertices_r_mut().insert(id, <Self::Vertex as Vertex>::new(id, value)).is_none());
         id
     }
 
@@ -80,7 +80,7 @@ pub trait HasVertices:
         if self.vertex(id).is_some() {
             self.remove_vertex_higher(id);
         }
-        self.vertices_raw_mut().remove(id).map(|v| v.to_value())
+        self.vertices_r_mut().remove(id).map(|v| v.to_value())
     }
 
     /// Removes a list of vertices.
@@ -100,7 +100,7 @@ pub trait HasVertices:
     /// Removes all vertices from the mesh.
     fn clear_vertices(&mut self) {
         self.clear_vertices_higher();
-        self.vertices_raw_mut().clear();
+        self.vertices_r_mut().clear();
     }
 }
 
@@ -177,11 +177,11 @@ pub(crate) mod internal {
             impl<$v $(, $args)*> crate::vertex::internal::HasVertices for $name<$v $(, $args)*> {
                 type Vertex = $vertex<$v>;
 
-                fn vertices_raw(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
+                fn vertices_r(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
                     &self.vertices
                 }
 
-                fn vertices_raw_mut(&mut self) -> &mut idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
+                fn vertices_r_mut(&mut self) -> &mut idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
                     &mut self.vertices
                 }
 
@@ -219,9 +219,9 @@ pub(crate) mod internal {
     pub trait HasVertices {
         type Vertex: Vertex;
 
-        fn vertices_raw(&self) -> &OrderedIdMap<VertexId, Self::Vertex>;
+        fn vertices_r(&self) -> &OrderedIdMap<VertexId, Self::Vertex>;
 
-        fn vertices_raw_mut(&mut self) -> &mut OrderedIdMap<VertexId, Self::Vertex>;
+        fn vertices_r_mut(&mut self) -> &mut OrderedIdMap<VertexId, Self::Vertex>;
 
         fn next_vertex_id(&self) -> u64;
 
