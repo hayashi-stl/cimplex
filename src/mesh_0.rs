@@ -88,6 +88,8 @@ mod internal {
     use super::ComboMesh0;
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
+    #[cfg(feature = "serde_")]
+    use serde::{Deserialize, Serialize};
 
     /// Vertex storage
     #[derive(Clone, Debug)]
@@ -95,7 +97,8 @@ mod internal {
     pub struct Vertex<V> {
         value: V,
     }
-    crate::impl_vertex!(Vertex<V>, new | _id, value | Vertex { value });
+    #[rustfmt::skip]
+    crate::impl_vertex!(Vertex<V>, new |_id, value| Vertex { value });
 
     impl<V> RemoveVertexHigher for ComboMesh0<V> {
         fn remove_vertex_higher(&mut self, _: VertexId) {}

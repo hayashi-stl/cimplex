@@ -3,11 +3,14 @@
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
+#[cfg(feature = "serde_")]
+use serde::{Deserialize, Serialize};
 
 use crate::tri::internal::{HasTris as HasTrisIntr, Tri};
 use crate::tri::{HasTris, TriWalker};
-use crate::vertex::internal::{HasVertices as HasVerticesIntr, Vertex};
+use crate::vertex::internal::{HasVertices as HasVerticesIntr};
 use crate::vertex::{internal::HigherVertex, HasVertices, VertexId};
+use crate::iter::{IteratorExt, MapWith};
 
 use internal::HasEdges as HasEdgesIntr;
 use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
@@ -62,11 +65,8 @@ type EdgeMapFnMut<'a, ET> = fn((&'a EdgeId, &'a mut ET)) -> (&'a EdgeId, &'a mut
 pub type EdgesMut<'a, ET> =
     Map<Filter<hash_map::IterMut<'a, EdgeId, ET>, EdgeFilterFnMut<'a, ET>>, EdgeMapFnMut<'a, ET>>;
 
-macro_rules! V {
-    () => {
-        <Self::Vertex as Vertex>::V
-    };
-}
+pub type VertexEdgesOut<'a, M> = MapWith<VertexId, EdgeId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+pub type VertexEdgesIn<'a, M> = MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 
 macro_rules! E {
     () => {
@@ -120,18 +120,18 @@ where
             .and_then(|e| e.value_mut().as_mut())
     }
 
-    /// Iterates over the outgoing edges of a vertex.
+    /// Iterates over the targets of the outgoing edges of a vertex.
     /// The vertex must exist.
-    fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<Self, V!(), E!()> {
+    fn vertex_targets(&self, vertex: VertexId) -> VertexTargets<Self> {
         if let Some(walker) = self.edge_walker_from_vertex(vertex) {
             let start_target = walker.target();
-            VertexEdgesOut {
+            VertexTargets {
                 walker,
                 start_target,
                 finished: false,
             }
         } else {
-            VertexEdgesOut {
+            VertexTargets {
                 walker: EdgeWalker::dummy(self),
                 start_target: VertexId::dummy(),
                 finished: true,
@@ -139,25 +139,37 @@ where
         }
     }
 
-    /// Iterates over the incoming edges of a vertex.
+    /// Iterates over the outgoing edges of a vertex.
     /// The vertex must exist.
-    fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<Self, V!(), E!()> {
+    fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<Self> {
+        self.vertex_targets(vertex).map_with(vertex, |s, t| EdgeId([s, t]))
+    }
+
+    /// Iterates over the sources of the incoming edges of a vertex.
+    /// The vertex must exist.
+    fn vertex_sources(&self, vertex: VertexId) -> VertexSources<Self> {
         if let Some(walker) =
             EdgeWalker::from_vertex_less_checked(self, vertex).and_then(|w| w.backward())
         {
             let start_source = walker.vertex();
-            VertexEdgesIn {
+            VertexSources {
                 walker,
                 start_source,
                 finished: false,
             }
         } else {
-            VertexEdgesIn {
+            VertexSources {
                 walker: EdgeWalker::dummy(self),
                 start_source: VertexId::dummy(),
                 finished: true,
             }
         }
+    }
+
+    /// Iterates over the incoming edges of a vertex.
+    /// The vertex must exist.
+    fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<Self> {
+        self.vertex_sources(vertex).map_with(vertex, |t, s| EdgeId([s, t]))
     }
 
     /// Adds an edge to the mesh. Vertex order is important!
@@ -320,35 +332,34 @@ where
 
     /// Gets a walker that starts at the given vertex.
     /// Returns None if the vertex has no outgoing edge.
-    fn edge_walker_from_vertex(&self, vertex: VertexId) -> Option<EdgeWalker<Self, V!(), E!()>> {
+    fn edge_walker_from_vertex(&self, vertex: VertexId) -> Option<EdgeWalker<Self>> {
         EdgeWalker::from_vertex(self, vertex)
     }
 
     /// Gets a walker that starts at the given edge.
-    fn edge_walker_from_edge<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeWalker<Self, V!(), E!()> {
+    /// The edge must actually exist.
+    fn edge_walker_from_edge<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeWalker<Self> {
         EdgeWalker::new(self, edge)
     }
 }
 
 /// A walker for navigating a simplicial complex by edge.
 #[derive(Debug)]
-pub struct EdgeWalker<'a, M: ?Sized, V, E>
+pub struct EdgeWalker<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
     mesh: &'a M,
     edge: EdgeId,
 }
 
-impl<'a, M: ?Sized, V, E> Clone for EdgeWalker<'a, M, V, E>
+impl<'a, M: ?Sized> Clone for EdgeWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -358,21 +369,19 @@ where
     }
 }
 
-impl<'a, M: ?Sized, V, E> Copy for EdgeWalker<'a, M, V, E>
+impl<'a, M: ?Sized> Copy for EdgeWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
 }
 
-impl<'a, M: ?Sized, V, E> EdgeWalker<'a, M, V, E>
+impl<'a, M: ?Sized> EdgeWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
     pub(crate) fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI) -> Self {
         Self {
@@ -546,7 +555,7 @@ where
         }
     }
 
-    pub fn tri_walker<F>(self) -> Option<TriWalker<'a, M, V, E, F>>
+    pub fn tri_walker<F>(self) -> Option<TriWalker<'a, M>>
     where
         <M as HasEdgesIntr>::Edge: HigherEdge,
         M: HasTris,
@@ -556,77 +565,73 @@ where
     }
 }
 
-/// An iterator over the outgoing edges of a vertex.
+/// An iterator over the targets of the outgoing edges of a vertex.
 #[derive(Clone, Debug)]
-pub struct VertexEdgesOut<'a, M: ?Sized, V, E>
+pub struct VertexTargets<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
-    walker: EdgeWalker<'a, M, V, E>,
+    walker: EdgeWalker<'a, M>,
     start_target: VertexId,
     finished: bool,
 }
 
-impl<'a, M: ?Sized, V, E> Iterator for VertexEdgesOut<'a, M, V, E>
+impl<'a, M: ?Sized> Iterator for VertexTargets<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
-    type Item = EdgeId;
+    type Item = VertexId;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             return None;
         }
 
-        let edge = self.walker.edge();
+        let target = self.walker.target();
         self.walker = self.walker.next();
         if self.walker.edge().0[1] == self.start_target {
             self.finished = true;
         }
-        Some(edge)
+        Some(target)
     }
 }
 
-/// An iterator over the incoming edges of a vertex.
+/// An iterator over the sources of the incoming edges of a vertex.
 #[derive(Clone, Debug)]
-pub struct VertexEdgesIn<'a, M: ?Sized, V, E>
+pub struct VertexSources<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
-    walker: EdgeWalker<'a, M, V, E>,
+    walker: EdgeWalker<'a, M>,
     start_source: VertexId,
     finished: bool,
 }
 
-impl<'a, M: ?Sized, V, E> Iterator for VertexEdgesIn<'a, M, V, E>
+impl<'a, M: ?Sized> Iterator for VertexSources<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E>,
 {
-    type Item = EdgeId;
+    type Item = VertexId;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             return None;
         }
 
-        let edge = self.walker.edge();
+        let source = self.walker.vertex();
         self.walker = self.walker.next_in();
         if self.walker.edge().0[0] == self.start_source {
             self.finished = true;
         }
-        Some(edge)
+        Some(source)
     }
 }
 
@@ -669,6 +674,8 @@ pub(crate) mod internal {
     use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
     use crate::vertex::VertexId;
     use fnv::FnvHashMap;
+    #[cfg(feature = "serde_")]
+    use serde::{Deserialize, Serialize};
 
     #[macro_export]
     #[doc(hidden)]
@@ -749,6 +756,7 @@ pub(crate) mod internal {
     }
 
     #[derive(Clone, Copy, Debug)]
+    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
     pub struct Link<T> {
         pub prev: T,
         pub next: T,

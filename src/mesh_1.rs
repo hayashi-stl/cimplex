@@ -60,6 +60,8 @@ pub(crate) mod internal {
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
     use crate::ComboMesh1;
+    #[cfg(feature = "serde_")]
+    use serde::{Deserialize, Serialize};
 
     //// A vertex of an edge mesh
     #[derive(Clone, Debug)]
@@ -70,11 +72,8 @@ pub(crate) mod internal {
         target: VertexId,
         value: V,
     }
-    crate::impl_vertex!(
-        HigherVertex<V>,
-        new | id,
-        value | { HigherVertex { target: id, value } }
-    );
+    #[rustfmt::skip]
+    crate::impl_vertex!(HigherVertex<V>, new |id, value| HigherVertex { target: id, value });
     crate::impl_higher_vertex!(HigherVertex<V>);
 
     /// An edge of an edge mesh
@@ -88,8 +87,9 @@ pub(crate) mod internal {
         /// it is just there for the structural purpose of
         /// ensuring that every edge has a twin.
         value: Option<E>,
-    }
-    crate::impl_edge!(Edge<E>, new | _id, link, value | Edge { link, value });
+    } 
+    #[rustfmt::skip]
+    crate::impl_edge!(Edge<E>, new |_id, link, value| Edge { link, value });
 
     impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {

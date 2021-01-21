@@ -3,20 +3,24 @@
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
+#[cfg(feature = "serde_")]
+use serde::{Deserialize, Serialize};
 
 use crate::edge::internal::{Edge, HasEdges as HasEdgesIntr, Link};
-use crate::edge::{EdgeId, EdgeWalker, HasEdges};
-use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex, Vertex};
+use crate::edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut};
+use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
-use internal::{ClearTrisHigher, HasTris as HasTrisIntr, RemoveTriHigher, Tri};
+use crate::iter::{IteratorExt, MapWith};
+
+use internal::{ClearTrisHigher, RemoveTriHigher, Tri};
 
 /// An triangle id is just the triangle's vertices in winding order,
 /// with the smallest index first.
 /// No two vertices are allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
-pub struct TriId([VertexId; 3]);
+pub struct TriId(pub(crate) [VertexId; 3]);
 
 impl TryFrom<[VertexId; 3]> for TriId {
     type Error = &'static str;
@@ -68,7 +72,7 @@ impl TriId {
         ]
     }
 
-    /// Gets the index of a vertex, assuming it's part of the face
+    /// Gets the index of a vertex, assuming it's part of the triangle
     fn index(self, vertex: VertexId) -> usize {
         self.0.iter().position(|v| *v == vertex).unwrap()
     }
@@ -78,8 +82,9 @@ impl TriId {
         Self([self.0[0], self.0[2], self.0[1]])
     }
 
-    fn target(mut self, vertex: VertexId) -> Self {
-        self.0[2] = vertex;
+    /// Sets the opposite vertex of some edge to some vertex.
+    fn opp(mut self, edge: EdgeId, vertex: VertexId) -> Self {
+        self.0[(self.index(edge.0[0]) + 2) % 3] = vertex;
         self.0 = Self::canonicalize(self.0);
         self
     }
@@ -94,11 +99,8 @@ type TriMapFnMut<'a, FT> = fn((&'a TriId, &'a mut FT)) -> (&'a TriId, &'a mut <F
 pub type TrisMut<'a, FT> =
     Map<Filter<hash_map::IterMut<'a, TriId, FT>, TriFilterFnMut<'a, FT>>, TriMapFnMut<'a, FT>>;
 
-macro_rules! V {
-    () => {
-        <Self::Vertex as Vertex>::V
-    };
-}
+pub type EdgeTris<'a, M> = MapWith<EdgeId, TriId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
+pub type VertexTris<'a, M> = MapWith<VertexId, TriId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
 
 macro_rules! E {
     () => {
@@ -159,18 +161,35 @@ where
             .and_then(|f| f.value_mut().as_mut())
     }
 
-    /// Iterates over the triangles that an edge is part of.
+    /// Iterates over the opposite edges of the triangles that a vertex is part of.
+    /// The vertex must exist.
+    fn vertex_edge_opps(&self, vertex: VertexId) -> VertexEdgeOpps<Self> {
+        VertexEdgeOpps {
+            mesh: self,
+            edges: self.vertex_edges_out(vertex),
+            opps: None,
+        }
+    }
+
+    /// Iterates over the triangles that a vertex is part of.
+    /// The vertex must exist.
+    fn vertex_tris(&self, vertex: VertexId) -> VertexTris<Self> {
+        self.vertex_edge_opps(vertex).map_with(vertex, |vertex, opp|
+            TriId(TriId::canonicalize([vertex, opp.0[0], opp.0[1]])))
+    }
+
+    /// Iterates over the opposite vertices of the triangles that an edge is part of.
     /// The edge must exist.
-    fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTris<Self, V!(), E!(), F!()> {
+    fn edge_vertex_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeVertexOpps<Self> {
         if let Some(walker) = self.tri_walker_from_edge(edge) {
             let start_opp = walker.opp();
-            EdgeTris {
+            EdgeVertexOpps {
                 walker,
                 start_opp,
                 finished: false,
             }
         } else {
-            EdgeTris {
+            EdgeVertexOpps {
                 walker: TriWalker::dummy(self),
                 start_opp: VertexId::dummy(),
                 finished: true,
@@ -178,16 +197,32 @@ where
         }
     }
 
+    /// Iterates over the triangles that an edge is part of.
+    /// The edge must exist.
+    fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTris<Self> {
+        let edge = edge.try_into().ok().unwrap();
+        self.edge_vertex_opps(edge).map_with(edge, |edge, opp|
+            TriId(TriId::canonicalize([edge.0[0], edge.0[1], opp])))
+    }
+
     /// Adds a triangle to the mesh. Vertex order is important!
     /// If the triangle was already there, this replaces the value.
+    /// Adds in the required edges if they aren't there already.
     /// Returns the previous value of the triangle, if there was one.
     ///
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same,
     /// or if any of the required edges doesn't exist. Use `add_tri_and_edges`
     /// to automatically add the required edges.
-    fn add_tri<FI: TryInto<TriId>>(&mut self, vertices: FI, value: F!()) -> Option<F!()> {
+    fn add_tri<FI: TryInto<TriId>>(&mut self, vertices: FI, value: F!(),
+        edge_value: impl Fn() -> E!()) -> Option<F!()> {
         let id = vertices.try_into().ok().unwrap();
+
+        for edge in &id.edges() {
+            if self.edge(*edge).is_none() {
+                self.add_edge(*edge, edge_value());
+            }
+        }
 
         // Can't use entry().or_insert() because that would cause a
         // mutable borrow and an immutable borrow to exist at the same time
@@ -215,8 +250,8 @@ where
                         let side = [edge.0[0], edge.0[1], target].try_into().ok().unwrap();
                         let prev = self.tris_r()[&side].opp(side, *edge).prev;
                         let next = target;
-                        let prev_tri = id.target(prev);
-                        let next_tri = id.target(next);
+                        let prev_tri = id.opp(*edge, prev);
+                        let next_tri = id.opp(*edge, next);
                         self.tris_r_mut()
                             .get_mut(&prev_tri)
                             .unwrap()
@@ -247,15 +282,39 @@ where
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same
     /// in any of the triangles.
-    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, F!())>>(&mut self, iter: I) {
+    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, F!())>>(&mut self, iter: I, edge_value: impl Fn() -> E!() + Clone) {
         iter.into_iter().for_each(|(id, value)| {
-            self.add_tri(id, value);
+            self.add_tri(id, value, edge_value.clone());
         })
     }
 
     /// Removes an triangle from the mesh and returns the value that was there,
-    /// or None if there was nothing there
+    /// or None if there was nothing there.
+    /// Removes the edges that are part of the triangle if they are part of no other triangles
+    /// and the triangle to be removed exists.
     fn remove_tri<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
+        let id = match id.try_into() {
+            Ok(id) => id,
+            Err(_) => return None,
+        };
+        
+        if let Some(value) = self.remove_tri_keep_edges(id) {
+            for edge in &id.edges() {
+                if self.edge_tris(*edge).next().is_none() {
+                    self.remove_edge(*edge);
+                }
+            }
+
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    /// Removes an triangle from the mesh and returns the value that was there,
+    /// or None if there was nothing there.
+    /// Keeps the edges that are part of the triangle.
+    fn remove_tri_keep_edges<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
         let id = match id.try_into() {
             Ok(id) => id,
             Err(_) => return None,
@@ -285,8 +344,8 @@ where
                         let tri = &self.tris_r()[&id];
                         let prev = tri.opps()[i].prev;
                         let next = tri.opps()[i].next;
-                        let prev_tri = id.target(prev);
-                        let next_tri = id.target(next);
+                        let prev_tri = id.opp(*edge, prev);
+                        let next_tri = id.opp(*edge, next);
                         self.tris_r_mut()
                             .get_mut(&prev_tri)
                             .unwrap()
@@ -326,6 +385,13 @@ where
         })
     }
 
+    /// Removes a list of triangles.
+    fn remove_tris_keep_edges<FI: TryInto<TriId>, I: IntoIterator<Item = FI>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|id| {
+            self.remove_tri_keep_edges(id);
+        })
+    }
+
     /// Keeps only the triangles that satisfy a predicate
     fn retain_tris<P: FnMut(TriId, &F!()) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
@@ -334,6 +400,16 @@ where
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         self.remove_tris(to_remove);
+    }
+
+    /// Keeps only the triangles that satisfy a predicate
+    fn retain_tris_keep_edges<P: FnMut(TriId, &F!()) -> bool>(&mut self, mut predicate: P) {
+        let to_remove = self
+            .tris()
+            .filter(|(id, f)| !predicate(**id, *f))
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        self.remove_tris_keep_edges(to_remove);
     }
 
     /// Removes all triangles from the mesh.
@@ -353,44 +429,43 @@ where
     fn tri_walker_from_edge<EI: TryInto<EdgeId>>(
         &self,
         edge: EI,
-    ) -> Option<TriWalker<Self, V!(), E!(), F!()>> {
+    ) -> Option<TriWalker<Self>> {
         TriWalker::from_edge(self, edge)
     }
 
     /// Gets a triangle walker that starts at the given edge with the given opposite vertex.
+    /// They must actually exist.
     fn tri_walker_from_tri<EI: TryInto<EdgeId>>(
         &self,
         edge: EI,
         opp: VertexId,
-    ) -> TriWalker<Self, V!(), E!(), F!()> {
+    ) -> TriWalker<Self> {
         TriWalker::new(self, edge, opp)
     }
 }
 
 /// A walker for navigating a simplicial complex by triangle
 #[derive(Debug)]
-pub struct TriWalker<'a, M: ?Sized, V, E, F>
+pub struct TriWalker<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
     mesh: &'a M,
     edge: EdgeId,
     opp: VertexId,
 }
 
-impl<'a, M: ?Sized, V, E, F> Clone for TriWalker<'a, M, V, E, F>
+impl<'a, M: ?Sized> Clone for TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -401,25 +476,23 @@ where
     }
 }
 
-impl<'a, M: ?Sized, V, E, F> Copy for TriWalker<'a, M, V, E, F>
+impl<'a, M: ?Sized> Copy for TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
 }
 
-impl<'a, M: ?Sized, V, E, F> TriWalker<'a, M, V, E, F>
+impl<'a, M: ?Sized> TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
     fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: VertexId) -> Self {
         Self {
@@ -437,7 +510,7 @@ where
         };
         let mut tri = start;
         while mesh.tris_r()[&tri].value().is_none() {
-            tri = tri.target(mesh.tris_r()[&tri].opp(tri, edge).next);
+            tri = tri.opp(edge, mesh.tris_r()[&tri].opp(tri, edge).next);
             if tri == start {
                 return None;
             }
@@ -493,7 +566,7 @@ where
     }
 
     /// Reverse the walker's direction so its
-    /// current triangle is the opposite triangle without changing the opposite vertex
+    /// current triangle is the opposite triangle without changing the opposite vertex.
     /// Returns None if the resulting triangle doesn't exist.
     pub fn twin(mut self) -> Option<Self> {
         self.edge = self.edge.twin();
@@ -502,6 +575,13 @@ where
         } else {
             None
         }
+    }
+
+    /// Set the current triangle to one that contains the twin 
+    /// of the current edge. Useful for getting the
+    /// other triangle of the undirected edge in a manifold.
+    pub fn on_twin_edge(self) -> Option<Self> {
+        self.edge_walker().twin().and_then(|w| w.tri_walker())
     }
 
     /// Sets the current edge to the next one in the same triangle.
@@ -542,49 +622,86 @@ where
 
     /// Turns this into an edge walker that starts
     /// at the current edge.
-    pub fn edge_walker(self) -> EdgeWalker<'a, M, V, E> {
+    pub fn edge_walker(self) -> EdgeWalker<'a, M> {
         EdgeWalker::new(self.mesh, self.edge)
     }
 }
 
-/// An iterator over the triangles of an edge.
-#[derive(Clone, Debug)]
-pub struct EdgeTris<'a, M: ?Sized, V, E, F>
+/// An iterator over the opposite edges of the triangles of a vertex.
+#[derive(Clone)]
+pub struct VertexEdgeOpps<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
-    walker: TriWalker<'a, M, V, E, F>,
+    mesh: &'a M,
+    edges: VertexEdgesOut<'a, M>,
+    opps: Option<EdgeVertexOpps<'a, M>>,
+}
+
+impl<'a, M: ?Sized> Iterator for VertexEdgeOpps<'a, M>
+where
+    M: HasVertices,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    M: HasEdges,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
+    M: HasTris,
+{
+    type Item = EdgeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut next;
+        while let Some(edge) = {
+            next = self.opps.as_mut().and_then(|iter| iter.next().map(|opp| 
+                EdgeId([iter.walker.second(), opp])));
+            if next.is_none() { self.edges.next() } else { None }
+        } {
+            self.opps = Some(self.mesh.edge_vertex_opps(edge));
+        }
+
+        next
+    }
+}
+
+/// An iterator over the opposite vertices of the triangles of an edge.
+#[derive(Clone, Debug)]
+pub struct EdgeVertexOpps<'a, M: ?Sized>
+where
+    M: HasVertices,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    M: HasEdges,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
+    M: HasTris,
+{
+    walker: TriWalker<'a, M>,
     start_opp: VertexId,
     finished: bool,
 }
 
-impl<'a, M: ?Sized, V, E, F> Iterator for EdgeTris<'a, M, V, E, F>
+impl<'a, M: ?Sized> Iterator for EdgeVertexOpps<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: Vertex<V = V> + HigherVertex,
+    <M as HasVerticesIntr>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: Edge<E = E> + HigherEdge,
+    <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: Tri<F = F>,
 {
-    type Item = TriId;
+    type Item = VertexId;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             return None;
         }
 
-        let tri = self.walker.tri();
+        let opp = self.walker.opp();
         self.walker = self.walker.next_opp();
         if self.walker.opp() == self.start_opp {
             self.finished = true;
         }
-        Some(tri)
+        Some(opp)
     }
 }
 

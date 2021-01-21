@@ -14,6 +14,7 @@ pub mod mesh_1;
 pub mod mesh_2;
 pub mod tri;
 pub mod vertex;
+mod iter;
 
 pub use mesh_0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh_1::{ComboMesh1, Mesh1, Mesh12, Mesh13};

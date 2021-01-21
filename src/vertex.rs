@@ -2,6 +2,8 @@
 
 use idmap::table::DenseEntryTable;
 use std::iter::Map;
+#[cfg(feature = "serde_")]
+use serde::{Deserialize, Serialize};
 
 use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex};
 
