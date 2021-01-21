@@ -4,7 +4,6 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::ops::{Index, IndexMut};
 use typenum::{U2, U3};
 
 use crate::edge::EdgeId;

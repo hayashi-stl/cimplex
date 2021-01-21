@@ -6,7 +6,8 @@ use std::iter::{Filter, Map};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 
-use crate::edge::internal::{Edge, HasEdges as HasEdgesIntr, Link};
+use crate::tri::internal::{HasTris as HasTrisIntr};
+use crate::{edge::internal::{Edge, HasEdges as HasEdgesIntr, Link}, tet::{HasTets, TetWalker}};
 use crate::edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut};
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
@@ -14,6 +15,8 @@ use crate::{edge::internal::HigherEdge, vertex::VertexId};
 use crate::iter::{IteratorExt, MapWith};
 
 use internal::{ClearTrisHigher, RemoveTriHigher, Tri};
+
+use self::internal::HigherTri;
 
 /// An triangle id is just the triangle's vertices in winding order,
 /// with the smallest index first.
@@ -37,7 +40,7 @@ impl TryFrom<[VertexId; 3]> for TriId {
 }
 
 impl TriId {
-    fn canonicalize(mut v: [VertexId; 3]) -> [VertexId; 3] {
+    pub(crate) fn canonicalize(mut v: [VertexId; 3]) -> [VertexId; 3] {
         let min_pos = v
             .iter()
             .enumerate()
@@ -64,7 +67,7 @@ impl TriId {
 
     /// Gets the edges of the triangle, with sources in the order of the vertices.
     /// Each edge includes its opposite vertex.
-    pub fn edges_and_opposite(self) -> [(EdgeId, VertexId); 3] {
+    pub fn edges_and_opp(self) -> [(EdgeId, VertexId); 3] {
         [
             (EdgeId([self.0[0], self.0[1]]), self.0[2]),
             (EdgeId([self.0[1], self.0[2]]), self.0[0]),
@@ -77,6 +80,11 @@ impl TriId {
         self.0.iter().position(|v| *v == vertex).unwrap()
     }
 
+    /// Gets the index of the opposite vertex of an edge, assuming it's part of the triangle
+    fn opp_index(self, edge: EdgeId) -> usize {
+        (self.index(edge.0[0]) + 2) % 3
+    }
+
     /// Reverses the tri so it winds the other way
     fn twin(self) -> Self {
         Self([self.0[0], self.0[2], self.0[1]])
@@ -84,7 +92,7 @@ impl TriId {
 
     /// Sets the opposite vertex of some edge to some vertex.
     fn opp(mut self, edge: EdgeId, vertex: VertexId) -> Self {
-        self.0[(self.index(edge.0[0]) + 2) % 3] = vertex;
+        self.0[self.opp_index(edge)] = vertex;
         self.0 = Self::canonicalize(self.0);
         self
     }
@@ -92,14 +100,18 @@ impl TriId {
 
 type TriFilterFn<'a, FT> = for<'b> fn(&'b (&'a TriId, &'a FT)) -> bool;
 type TriMapFn<'a, FT> = fn((&'a TriId, &'a FT)) -> (&'a TriId, &'a <FT as Tri>::F);
+/// Iterator over the triangles of a mesh.
 pub type Tris<'a, FT> =
     Map<Filter<hash_map::Iter<'a, TriId, FT>, TriFilterFn<'a, FT>>, TriMapFn<'a, FT>>;
 type TriFilterFnMut<'a, FT> = for<'b> fn(&'b (&'a TriId, &'a mut FT)) -> bool;
 type TriMapFnMut<'a, FT> = fn((&'a TriId, &'a mut FT)) -> (&'a TriId, &'a mut <FT as Tri>::F);
+/// Iterator over the triangles of a mesh mutably.
 pub type TrisMut<'a, FT> =
     Map<Filter<hash_map::IterMut<'a, TriId, FT>, TriFilterFnMut<'a, FT>>, TriMapFnMut<'a, FT>>;
 
+/// Iterator over the triangles connected to an edge with the correct winding.
 pub type EdgeTris<'a, M> = MapWith<EdgeId, TriId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
+/// Iterator over the triangles connected to a vertex.
 pub type VertexTris<'a, M> = MapWith<VertexId, TriId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
 
 macro_rules! E {
@@ -211,9 +223,7 @@ where
     /// Returns the previous value of the triangle, if there was one.
     ///
     /// # Panics
-    /// Panics if any vertex doesn't exist or if any two vertices are the same,
-    /// or if any of the required edges doesn't exist. Use `add_tri_and_edges`
-    /// to automatically add the required edges.
+    /// Panics if any vertex doesn't exist or if any two vertices are the same.
     fn add_tri<FI: TryInto<TriId>>(&mut self, vertices: FI, value: F!(),
         edge_value: impl Fn() -> E!()) -> Option<F!()> {
         let id = vertices.try_into().ok().unwrap();
@@ -239,7 +249,7 @@ where
             let mut insert_tri = |id: TriId, value: Option<F!()>| {
                 let mut opps = [Link::dummy(VertexId::dummy); 3];
 
-                for (i, (edge, opp)) in id.edges_and_opposite().iter().enumerate() {
+                for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
                     let target = self.edges_r()[edge].tri_opp();
 
                     let (prev, next) = if target == edge.0[0] {
@@ -340,7 +350,7 @@ where
                 *self.num_tris_r_mut() -= 1;
 
                 let mut delete_tri = |id: TriId| {
-                    for (i, (edge, opp)) in id.edges_and_opposite().iter().enumerate() {
+                    for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
                         let tri = &self.tris_r()[&id];
                         let prev = tri.opps()[i].prev;
                         let next = tri.opps()[i].next;
@@ -435,12 +445,22 @@ where
 
     /// Gets a triangle walker that starts at the given edge with the given opposite vertex.
     /// They must actually exist.
-    fn tri_walker_from_tri<EI: TryInto<EdgeId>>(
+    fn tri_walker_from_edge_vertex<EI: TryInto<EdgeId>>(
         &self,
         edge: EI,
         opp: VertexId,
     ) -> TriWalker<Self> {
         TriWalker::new(self, edge, opp)
+    }
+
+    /// Gets a triangle walker that starts at the given triangle.
+    /// It must actually exist.
+    fn tri_walker_from_tri<FI: TryInto<TriId>>(
+        &self,
+        tri: FI,
+    ) -> TriWalker<Self> {
+        let tri = tri.try_into().ok().unwrap();
+        TriWalker::new(self, tri.edges()[0], tri.0[2])
     }
 }
 
@@ -494,7 +514,7 @@ where
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
 {
-    fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: VertexId) -> Self {
+    pub(crate) fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: VertexId) -> Self {
         Self {
             mesh,
             edge: edge.try_into().ok().unwrap(),
@@ -517,7 +537,7 @@ where
         }
 
         let index = tri.index(edge.0[0]);
-        let (edge, opp) = tri.edges_and_opposite()[index];
+        let (edge, opp) = tri.edges_and_opp()[index];
         Some(Self::new(mesh, edge, opp))
     }
 
@@ -610,7 +630,7 @@ where
         self
     }
 
-    /// Sets the current opposite vertex to the previoud one with the same edge.
+    /// Sets the current opposite vertex to the previous one with the same edge.
     pub fn prev_opp(mut self) -> Self {
         while {
             let tri = self.tri();
@@ -624,6 +644,14 @@ where
     /// at the current edge.
     pub fn edge_walker(self) -> EdgeWalker<'a, M> {
         EdgeWalker::new(self.mesh, self.edge)
+    }
+
+    pub fn tet_walker(self) -> Option<TetWalker<'a, M>>
+    where
+        <M as HasTrisIntr>::Tri: HigherTri,
+        M: HasTets,
+    {
+        TetWalker::from_edge_vertex(self.mesh, self.edge, self.opp)
     }
 }
 
@@ -676,7 +704,7 @@ where
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
 {
-    walker: TriWalker<'a, M>,
+    pub(crate) walker: TriWalker<'a, M>,
     start_opp: VertexId,
     finished: bool,
 }
@@ -705,6 +733,40 @@ where
     }
 }
 
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_index_tri {
+    ($name:ident<$v:ident, $e:ident, $f: ident $(, $args:ident)*>) => {
+        impl<$v, $e, $f $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*> {
+            type Output = $f;
+
+            fn index(&self, index: [crate::vertex::VertexId; 3]) -> &Self::Output {
+                self.tri(index).unwrap()
+            }
+        }
+
+        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*> {
+            fn index_mut(&mut self, index: [crate::vertex::VertexId; 3]) -> &mut Self::Output {
+                self.tri_mut(index).unwrap()
+            }
+        }
+
+        impl<$v, $e, $f $(, $args)*> std::ops::Index<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*> {
+            type Output = $f;
+
+            fn index(&self, index: crate::tri::TriId) -> &Self::Output {
+                self.tri(index).unwrap()
+            }
+        }
+
+        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*> {
+            fn index_mut(&mut self, index: crate::tri::TriId) -> &mut Self::Output {
+                self.tri_mut(index).unwrap()
+            }
+        }
+    };
+}
+
 pub(crate) mod internal {
     use fnv::FnvHashMap;
 
@@ -718,7 +780,7 @@ pub(crate) mod internal {
     #[doc(hidden)]
     macro_rules! impl_tri {
         ($name:ident<$f:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$f> crate::tri::internal::Tri for Tri<$f> {
+            impl<$f> crate::tri::internal::Tri for $name<$f> {
                 type F = $f;
 
                 fn new(
@@ -756,10 +818,26 @@ pub(crate) mod internal {
 
     #[macro_export]
     #[doc(hidden)]
+    macro_rules! impl_higher_tri {
+        ($name:ident<$f:ident>) => {
+            impl<$f> crate::tri::internal::HigherTri for $name<$f> {
+                fn tet_opp(&self) -> crate::vertex::VertexId {
+                    self.tet_opp
+                }
+
+                fn tet_opp_mut(&mut self) -> &mut crate::vertex::VertexId {
+                    &mut self.tet_opp
+                }
+            }
+        };
+    }
+
+    #[macro_export]
+    #[doc(hidden)]
     macro_rules! impl_has_tris {
         ($name:ident<$v:ident, $e:ident, $f:ident $(, $args:ident)*>, $tri:ident) => {
-            impl<$v, $e, $f $(, $args)*> crate::tri::internal::HasTris for ComboMesh2<$v, $e, $f $(, $args)*> {
-                type Tri = Tri<$f>;
+            impl<$v, $e, $f $(, $args)*> crate::tri::internal::HasTris for $name<$v, $e, $f $(, $args)*> {
+                type Tri = $tri<$f>;
 
                 fn tris_r(&self) -> &FnvHashMap<crate::tri::TriId, Self::Tri> {
                     &self.tris
@@ -806,6 +884,12 @@ pub(crate) mod internal {
         fn opp_mut(&mut self, id: TriId, edge: EdgeId) -> &mut Link<VertexId> {
             &mut self.opps_mut()[id.index(edge.0[0])]
         }
+    }
+
+    pub trait HigherTri: Tri {
+        fn tet_opp(&self) -> VertexId;
+
+        fn tet_opp_mut(&mut self) -> &mut VertexId;
     }
 
     pub trait HasTris: HasEdgesIntr

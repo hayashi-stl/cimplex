@@ -20,10 +20,12 @@ impl VertexId {
     }
 }
 
+/// Iterator over the vertices of a mesh.
 pub type Vertices<'a, VT> = Map<
     idmap::Iter<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
     for<'b> fn((&'b VertexId, &'b VT)) -> (&'b VertexId, &'b <VT as Vertex>::V),
 >;
+/// Iterator over the vertices of a mesh mutably.
 pub type VerticesMut<'a, VT> = Map<
     idmap::IterMut<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
     for<'b> fn((&'b VertexId, &'b mut VT)) -> (&'b VertexId, &'b mut <VT as Vertex>::V),

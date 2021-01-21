@@ -12,13 +12,16 @@ pub mod edge;
 pub mod mesh_0;
 pub mod mesh_1;
 pub mod mesh_2;
+pub mod mesh_3;
 pub mod tri;
+pub mod tet;
 pub mod vertex;
 mod iter;
 
 pub use mesh_0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh_1::{ComboMesh1, Mesh1, Mesh12, Mesh13};
 pub use mesh_2::{ComboMesh2, Mesh2, Mesh22, Mesh23};
+pub use mesh_3::{ComboMesh3, Mesh3, Mesh32, Mesh33};
 
 /// Marker trait to aid converting
 /// lists of vertices into simplex ids.

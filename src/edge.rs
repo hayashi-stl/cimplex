@@ -6,7 +6,6 @@ use std::iter::{Filter, Map};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 
-use crate::tri::internal::{HasTris as HasTrisIntr, Tri};
 use crate::tri::{HasTris, TriWalker};
 use crate::vertex::internal::{HasVertices as HasVerticesIntr};
 use crate::vertex::{internal::HigherVertex, HasVertices, VertexId};
@@ -58,14 +57,18 @@ impl EdgeId {
 
 type EdgeFilterFn<'a, ET> = for<'b> fn(&'b (&'a EdgeId, &'a ET)) -> bool;
 type EdgeMapFn<'a, ET> = fn((&'a EdgeId, &'a ET)) -> (&'a EdgeId, &'a <ET as Edge>::E);
+/// Iterator over the edges of a mesh.
 pub type Edges<'a, ET> =
     Map<Filter<hash_map::Iter<'a, EdgeId, ET>, EdgeFilterFn<'a, ET>>, EdgeMapFn<'a, ET>>;
 type EdgeFilterFnMut<'a, ET> = for<'b> fn(&'b (&'a EdgeId, &'a mut ET)) -> bool;
 type EdgeMapFnMut<'a, ET> = fn((&'a EdgeId, &'a mut ET)) -> (&'a EdgeId, &'a mut <ET as Edge>::E);
+/// Iterator over the edges of a mesh mutably.
 pub type EdgesMut<'a, ET> =
     Map<Filter<hash_map::IterMut<'a, EdgeId, ET>, EdgeFilterFnMut<'a, ET>>, EdgeMapFnMut<'a, ET>>;
 
+/// Iterator over the edges pointing out from a vertex.
 pub type VertexEdgesOut<'a, M> = MapWith<VertexId, EdgeId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+/// Iterator over the edges pointing in to a vertex.
 pub type VertexEdgesIn<'a, M> = MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 
 macro_rules! E {
@@ -555,11 +558,10 @@ where
         }
     }
 
-    pub fn tri_walker<F>(self) -> Option<TriWalker<'a, M>>
+    pub fn tri_walker(self) -> Option<TriWalker<'a, M>>
     where
         <M as HasEdgesIntr>::Edge: HigherEdge,
         M: HasTris,
-        <M as HasTrisIntr>::Tri: Tri<F = F>,
     {
         TriWalker::from_edge(self.mesh, self.edge)
     }
@@ -639,7 +641,7 @@ where
 #[doc(hidden)]
 macro_rules! impl_index_edge {
     ($name:ident<$v:ident, $e:ident $(, $args:ident)*>) => {
-        impl<$v, $e $(, $args)*> Index<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
+        impl<$v, $e $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
             type Output = $e;
 
             fn index(&self, index: [crate::vertex::VertexId; 2]) -> &Self::Output {
@@ -647,7 +649,7 @@ macro_rules! impl_index_edge {
             }
         }
 
-        impl<$v, $e $(, $args)*> IndexMut<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
+        impl<$v, $e $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
             fn index_mut(&mut self, index: [crate::vertex::VertexId; 2]) -> &mut Self::Output {
                 self.edge_mut(index).unwrap()
             }

@@ -36,6 +36,9 @@ pub struct ComboMesh2<V, E, F> {
 crate::impl_has_vertices!(ComboMesh2<V, E, F>, HigherVertex);
 crate::impl_has_edges!(ComboMesh2<V, E, F>, HigherEdge);
 crate::impl_has_tris!(ComboMesh2<V, E, F>, Tri);
+crate::impl_index_vertex!(ComboMesh2<V, E, F>);
+crate::impl_index_edge!(ComboMesh2<V, E, F>);
+crate::impl_index_tri!(ComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {}
 impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {}
@@ -70,7 +73,7 @@ pub type Mesh22<V, E, F> = Mesh2<V, E, F, U2>;
 /// A 3D-position-containing tri mesh
 pub type Mesh23<V, E, F> = Mesh2<V, E, F, U3>;
 
-mod internal {
+pub(crate) mod internal {
     use super::ComboMesh2;
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
@@ -753,7 +756,7 @@ mod tests {
 
         assert!(mesh.tri_walker_from_edge([ids[6], ids[7]]).is_none());
 
-        let walker = mesh.tri_walker_from_tri([ids[0], ids[1]], ids[2]);
+        let walker = mesh.tri_walker_from_edge_vertex([ids[0], ids[1]], ids[2]);
         assert_eq!(walker.edge(), EdgeId([ids[0], ids[1]]));
         assert_eq!(walker.vertex(), ids[0]);
         assert_eq!(walker.second(), ids[1]);
@@ -792,7 +795,7 @@ mod tests {
 
         assert!(walker.on_twin_edge().is_none());
 
-        let walker = mesh.tri_walker_from_tri([ids[4], ids[6]], ids[5]);
+        let walker = mesh.tri_walker_from_edge_vertex([ids[4], ids[6]], ids[5]);
         let walker = walker.twin().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[6], ids[4]]));
         assert_eq!(walker.opp(), ids[5]);
@@ -886,6 +889,40 @@ mod tests {
         let expected = vec![
             TriId([ids[0], ids[1], ids[2]]),
             TriId([ids[1], ids[2], ids[3]]),
+        ].into_iter().collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_vertex_tris() {
+        let mut mesh = ComboMesh2::<usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
+        let tris = vec![
+            ([ids[0], ids[1], ids[2]], 1),
+            ([ids[3], ids[1], ids[2]], 2),
+            ([ids[4], ids[2], ids[1]], 3),
+            ([ids[4], ids[1], ids[5]], 4),
+            ([ids[5], ids[6], ids[4]], 5),
+        ];
+        mesh.extend_tris(tris, || 0);
+        mesh.add_edge([ids[6], ids[7]], 1);
+
+        let set = mesh.vertex_tris(ids[7]).collect::<FnvHashSet<_>>();
+        let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+        
+        let set = mesh.vertex_tris(ids[6]).collect::<FnvHashSet<_>>();
+        let expected = vec![
+            TriId([ids[4], ids[5], ids[6]]),
+        ].into_iter().collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+        
+        let set = mesh.vertex_tris(ids[1]).collect::<FnvHashSet<_>>();
+        let expected = vec![
+            TriId([ids[0], ids[1], ids[2]]),
+            TriId([ids[1], ids[2], ids[3]]),
+            TriId([ids[1], ids[4], ids[2]]),
+            TriId([ids[1], ids[5], ids[4]]),
         ].into_iter().collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
