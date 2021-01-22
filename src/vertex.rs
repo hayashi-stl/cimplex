@@ -1,9 +1,9 @@
 //! Traits and structs related to vertices
 
 use idmap::table::DenseEntryTable;
-use std::iter::Map;
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
+use std::iter::Map;
 
 use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex};
 

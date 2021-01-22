@@ -8,8 +8,8 @@ use typenum::{U2, U3};
 use crate::edge::{EdgeId, HasEdges};
 use crate::mesh_1::internal::HigherVertex;
 use crate::mesh_2::internal::HigherEdge;
-use crate::tri::{HasTris, TriId};
 use crate::tet::{HasTets, TetId};
+use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
 use crate::VecN;
 
@@ -85,15 +85,14 @@ pub type Mesh32<V, E, F, T> = Mesh3<V, E, F, T, U2>;
 /// A 3D-position-containing tri mesh
 pub type Mesh33<V, E, F, T> = Mesh3<V, E, F, T, U3>;
 
-
 mod internal {
     use super::ComboMesh3;
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
-    use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
-    use crate::tri::{HasTris, TriId};
     use crate::tet::internal::{ClearTetsHigher, RemoveTetHigher};
     use crate::tet::{HasTets, TetId};
+    use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
+    use crate::tri::{HasTris, TriId};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
     #[cfg(feature = "serde_")]
@@ -402,11 +401,14 @@ mod tests {
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5, || 0), None);
 
-        assert_edges(&mesh, vec![
-            ([ids[1], ids[0]], 0),
-            ([ids[0], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[1], ids[0]], 0),
+                ([ids[0], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+            ],
+        );
         assert_tris(&mesh, vec![([ids[0], ids[2], ids[1]], 5)]);
 
         // Prematurely add edge
@@ -414,33 +416,39 @@ mod tests {
 
         // Add twin
         assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6, || 0), None);
-        assert_edges(&mesh, vec![
-            ([ids[1], ids[0]], 0),
-            ([ids[0], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[2]], 1),
-            ([ids[0], ids[1]], 0),
-            ([ids[2], ids[0]], 0),
-        ]);
-        assert_tris(&mesh, vec![
-            ([ids[0], ids[2], ids[1]], 5),
-            ([ids[0], ids[1], ids[2]], 6),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[1], ids[0]], 0),
+                ([ids[0], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[2]], 1),
+                ([ids[0], ids[1]], 0),
+                ([ids[2], ids[0]], 0),
+            ],
+        );
+        assert_tris(
+            &mesh,
+            vec![([ids[0], ids[2], ids[1]], 5), ([ids[0], ids[1], ids[2]], 6)],
+        );
 
         // Modify tri
         assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7, || 0), Some(6));
-        assert_edges(&mesh, vec![
-            ([ids[1], ids[0]], 0),
-            ([ids[0], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[2]], 1),
-            ([ids[0], ids[1]], 0),
-            ([ids[2], ids[0]], 0),
-        ]);
-        assert_tris(&mesh, vec![
-            ([ids[0], ids[2], ids[1]], 5),
-            ([ids[0], ids[1], ids[2]], 7),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[1], ids[0]], 0),
+                ([ids[0], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[2]], 1),
+                ([ids[0], ids[1]], 0),
+                ([ids[2], ids[0]], 0),
+            ],
+        );
+        assert_tris(
+            &mesh,
+            vec![([ids[0], ids[2], ids[1]], 5), ([ids[0], ids[1], ids[2]], 7)],
+        );
     }
 
     #[test]
@@ -458,24 +466,27 @@ mod tests {
         ];
         mesh.extend_tris(tris.clone(), || 0);
 
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[1]], 0),
-            ([ids[1], ids[2]], 0),
-            ([ids[2], ids[0]], 0),
-            ([ids[3], ids[1]], 0),
-            ([ids[2], ids[3]], 0),
-            ([ids[4], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[4]], 0),
-            ([ids[4], ids[1]], 0),
-            ([ids[1], ids[5]], 0),
-            ([ids[5], ids[4]], 0),
-            ([ids[5], ids[6]], 0),
-            ([ids[6], ids[4]], 0),
-            ([ids[4], ids[5]], 0),
-            ([ids[4], ids[6]], 0),
-            ([ids[6], ids[5]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[1]], 0),
+                ([ids[1], ids[2]], 0),
+                ([ids[2], ids[0]], 0),
+                ([ids[3], ids[1]], 0),
+                ([ids[2], ids[3]], 0),
+                ([ids[4], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[4]], 0),
+                ([ids[4], ids[1]], 0),
+                ([ids[1], ids[5]], 0),
+                ([ids[5], ids[4]], 0),
+                ([ids[5], ids[6]], 0),
+                ([ids[6], ids[4]], 0),
+                ([ids[4], ids[5]], 0),
+                ([ids[4], ids[6]], 0),
+                ([ids[6], ids[5]], 0),
+            ],
+        );
         assert_tris(&mesh, tris);
     }
 
@@ -483,53 +494,75 @@ mod tests {
     fn test_add_tet() {
         let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0), None);
-        assert_tris(&mesh, vec![
-            ([ids[2], ids[1], ids[0]], 0),
-            ([ids[1], ids[2], ids[3]], 0),
-            ([ids[0], ids[3], ids[2]], 0),
-            ([ids[3], ids[0], ids[1]], 0),
-        ]);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[1], ids[3], ids[2]], 1),
-        ]);
+        assert_eq!(
+            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0),
+            None
+        );
+        assert_tris(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+            ],
+        );
+        assert_tets(&mesh, vec![([ids[0], ids[1], ids[3], ids[2]], 1)]);
 
         // Prematurely add triangle
         mesh.add_tri([ids[1], ids[2], ids[0]], 1, || 0);
 
         // Add twin
-        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2, || 0, || 0), None);
-        assert_tris(&mesh, vec![
-            ([ids[2], ids[1], ids[0]], 0),
-            ([ids[1], ids[2], ids[3]], 0),
-            ([ids[0], ids[3], ids[2]], 0),
-            ([ids[3], ids[0], ids[1]], 0),
-            ([ids[0], ids[1], ids[2]], 1),
-            ([ids[3], ids[2], ids[1]], 0),
-            ([ids[2], ids[3], ids[0]], 0),
-            ([ids[1], ids[0], ids[3]], 0),
-        ]);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[1], ids[3], ids[2]], 1),
-            ([ids[0], ids[1], ids[2], ids[3]], 2),
-        ]);
+        assert_eq!(
+            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2, || 0, || 0),
+            None
+        );
+        assert_tris(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+                ([ids[0], ids[1], ids[2]], 1),
+                ([ids[3], ids[2], ids[1]], 0),
+                ([ids[2], ids[3], ids[0]], 0),
+                ([ids[1], ids[0], ids[3]], 0),
+            ],
+        );
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[3], ids[2]], 1),
+                ([ids[0], ids[1], ids[2], ids[3]], 2),
+            ],
+        );
 
         // Modify tet
-        assert_eq!(mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3, || 0, || 0), Some(2));
-        assert_tris(&mesh, vec![
-            ([ids[2], ids[1], ids[0]], 0),
-            ([ids[1], ids[2], ids[3]], 0),
-            ([ids[0], ids[3], ids[2]], 0),
-            ([ids[3], ids[0], ids[1]], 0),
-            ([ids[0], ids[1], ids[2]], 1),
-            ([ids[3], ids[2], ids[1]], 0),
-            ([ids[2], ids[3], ids[0]], 0),
-            ([ids[1], ids[0], ids[3]], 0),
-        ]);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[1], ids[3], ids[2]], 1),
-            ([ids[0], ids[1], ids[2], ids[3]], 3),
-        ]);
+        assert_eq!(
+            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3, || 0, || 0),
+            Some(2)
+        );
+        assert_tris(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+                ([ids[0], ids[1], ids[2]], 1),
+                ([ids[3], ids[2], ids[1]], 0),
+                ([ids[2], ids[3], ids[0]], 0),
+                ([ids[1], ids[0], ids[3]], 0),
+            ],
+        );
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[3], ids[2]], 1),
+                ([ids[0], ids[1], ids[2], ids[3]], 3),
+            ],
+        );
     }
 
     #[test]
@@ -670,22 +703,25 @@ mod tests {
         mesh.extend_tris(tris, || 0);
 
         assert_eq!(mesh.remove_tri([ids[0], ids[1], ids[2]]), Some(1)); // first tri with edge
-        assert_edges(&mesh, vec![
-            ([ids[1], ids[2]], 0),
-            ([ids[3], ids[1]], 0),
-            ([ids[2], ids[3]], 0),
-            ([ids[4], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[4]], 0),
-            ([ids[4], ids[1]], 0),
-            ([ids[1], ids[5]], 0),
-            ([ids[5], ids[4]], 0),
-            ([ids[5], ids[6]], 0),
-            ([ids[6], ids[4]], 0),
-            ([ids[4], ids[5]], 0),
-            ([ids[4], ids[6]], 0),
-            ([ids[6], ids[5]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[1], ids[2]], 0),
+                ([ids[3], ids[1]], 0),
+                ([ids[2], ids[3]], 0),
+                ([ids[4], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[4]], 0),
+                ([ids[4], ids[1]], 0),
+                ([ids[1], ids[5]], 0),
+                ([ids[5], ids[4]], 0),
+                ([ids[5], ids[6]], 0),
+                ([ids[6], ids[4]], 0),
+                ([ids[4], ids[5]], 0),
+                ([ids[4], ids[6]], 0),
+                ([ids[6], ids[5]], 0),
+            ],
+        );
         assert_tris(
             &mesh,
             vec![
@@ -698,19 +734,22 @@ mod tests {
         );
 
         assert_eq!(mesh.remove_tri([ids[3], ids[1], ids[2]]), Some(2)); // last tri with edge
-        assert_edges(&mesh, vec![
-            ([ids[4], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[4]], 0),
-            ([ids[4], ids[1]], 0),
-            ([ids[1], ids[5]], 0),
-            ([ids[5], ids[4]], 0),
-            ([ids[5], ids[6]], 0),
-            ([ids[6], ids[4]], 0),
-            ([ids[4], ids[5]], 0),
-            ([ids[4], ids[6]], 0),
-            ([ids[6], ids[5]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[4], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[4]], 0),
+                ([ids[4], ids[1]], 0),
+                ([ids[1], ids[5]], 0),
+                ([ids[5], ids[4]], 0),
+                ([ids[5], ids[6]], 0),
+                ([ids[6], ids[4]], 0),
+                ([ids[4], ids[5]], 0),
+                ([ids[4], ids[6]], 0),
+                ([ids[6], ids[5]], 0),
+            ],
+        );
         assert_tris(
             &mesh,
             vec![
@@ -722,19 +761,22 @@ mod tests {
         );
 
         assert_eq!(mesh.remove_tri([ids[1], ids[2], ids[4]]), None); // nonexistent tri
-        assert_edges(&mesh, vec![
-            ([ids[4], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[4]], 0),
-            ([ids[4], ids[1]], 0),
-            ([ids[1], ids[5]], 0),
-            ([ids[5], ids[4]], 0),
-            ([ids[5], ids[6]], 0),
-            ([ids[6], ids[4]], 0),
-            ([ids[4], ids[5]], 0),
-            ([ids[4], ids[6]], 0),
-            ([ids[6], ids[5]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[4], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[4]], 0),
+                ([ids[4], ids[1]], 0),
+                ([ids[1], ids[5]], 0),
+                ([ids[5], ids[4]], 0),
+                ([ids[5], ids[6]], 0),
+                ([ids[6], ids[4]], 0),
+                ([ids[4], ids[5]], 0),
+                ([ids[4], ids[6]], 0),
+                ([ids[6], ids[5]], 0),
+            ],
+        );
         assert_tris(
             &mesh,
             vec![
@@ -762,31 +804,40 @@ mod tests {
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
         assert_eq!(mesh.num_tris, 20);
-        assert_tets(&mesh, vec![
-            ([ids[1], ids[2], ids[3], ids[0]], 2),
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[1], ids[2], ids[3], ids[0]], 2),
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
         assert_eq!(mesh.num_tris, 16);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_tet([ids[4], ids[1], ids[3], ids[2]]), None);
         assert_eq!(mesh.num_tris, 16);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
     }
 
     #[test]
@@ -804,18 +855,27 @@ mod tests {
         mesh.extend_tets(tets.clone(), || 0, || 0);
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
-        assert_eq!(mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7, || 0, || 0), None);
-        assert_eq!(mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0), None);
+        assert_eq!(
+            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7, || 0, || 0),
+            None
+        );
+        assert_eq!(
+            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0),
+            None
+        );
         assert_eq!(mesh.num_tris, 27);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[1], ids[2], ids[3]], 8),
-            ([ids[1], ids[2], ids[3], ids[0]], 2),
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-            ([ids[7], ids[6], ids[4], ids[8]], 7),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[2], ids[3]], 8),
+                ([ids[1], ids[2], ids[3], ids[0]], 2),
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+                ([ids[7], ids[6], ids[4], ids[8]], 7),
+            ],
+        );
     }
 
     #[test]
@@ -894,7 +954,16 @@ mod tests {
         mesh.clear_edges();
         assert_vertices(
             &mesh,
-            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2), (ids[4], 5), (ids[5], 8), (ids[6], 1), (ids[7], 4)],
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids[4], 5),
+                (ids[5], 8),
+                (ids[6], 1),
+                (ids[7], 4),
+            ],
         );
         assert_edges(&mesh, vec![] as Vec<(EdgeId, _)>);
         assert_tris(&mesh, vec![] as Vec<(TriId, _)>);
@@ -914,30 +983,42 @@ mod tests {
             ([ids[4], ids[6], ids[5]], 6),
         ];
         mesh.extend_tris(tris, || 0);
-        
+
         mesh.clear_tris();
         assert_vertices(
             &mesh,
-            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2), (ids[4], 5), (ids[5], 8), (ids[6], 1), (ids[7], 4)],
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids[4], 5),
+                (ids[5], 8),
+                (ids[6], 1),
+                (ids[7], 4),
+            ],
         );
-        assert_edges(&mesh, vec![
-            ([ids[0], ids[1]], 0),
-            ([ids[1], ids[2]], 0),
-            ([ids[2], ids[0]], 0),
-            ([ids[3], ids[1]], 0),
-            ([ids[2], ids[3]], 0),
-            ([ids[4], ids[2]], 0),
-            ([ids[2], ids[1]], 0),
-            ([ids[1], ids[4]], 0),
-            ([ids[4], ids[1]], 0),
-            ([ids[1], ids[5]], 0),
-            ([ids[5], ids[4]], 0),
-            ([ids[5], ids[6]], 0),
-            ([ids[6], ids[4]], 0),
-            ([ids[4], ids[5]], 0),
-            ([ids[4], ids[6]], 0),
-            ([ids[6], ids[5]], 0),
-        ]);
+        assert_edges(
+            &mesh,
+            vec![
+                ([ids[0], ids[1]], 0),
+                ([ids[1], ids[2]], 0),
+                ([ids[2], ids[0]], 0),
+                ([ids[3], ids[1]], 0),
+                ([ids[2], ids[3]], 0),
+                ([ids[4], ids[2]], 0),
+                ([ids[2], ids[1]], 0),
+                ([ids[1], ids[4]], 0),
+                ([ids[4], ids[1]], 0),
+                ([ids[1], ids[5]], 0),
+                ([ids[5], ids[4]], 0),
+                ([ids[5], ids[6]], 0),
+                ([ids[6], ids[4]], 0),
+                ([ids[4], ids[5]], 0),
+                ([ids[4], ids[6]], 0),
+                ([ids[6], ids[5]], 0),
+            ],
+        );
         assert_tris(&mesh, vec![] as Vec<(TriId, _)>);
         assert_tets(&mesh, vec![] as Vec<(TetId, _)>);
     }
@@ -987,8 +1068,14 @@ mod tests {
         assert_eq!(walker.second(), ids[3]);
         assert_eq!(walker.third(), ids[0]);
         assert_eq!(walker.opp_vertex(), ids[1]);
-        assert_eq!(walker.tri(), [ids[2], ids[3], ids[0]].try_into().ok().unwrap());
-        assert_eq!(walker.tet(), [ids[2], ids[3], ids[0], ids[1]].try_into().ok().unwrap());
+        assert_eq!(
+            walker.tri(),
+            [ids[2], ids[3], ids[0]].try_into().ok().unwrap()
+        );
+        assert_eq!(
+            walker.tet(),
+            [ids[2], ids[3], ids[0], ids[1]].try_into().ok().unwrap()
+        );
 
         let branch = walker.twin().unwrap(); // branch!
         assert_eq!(branch.edge(), EdgeId([ids[3], ids[2]]));
@@ -1131,18 +1218,20 @@ mod tests {
         let set = mesh.edge_tris([ids[6], ids[7]]).collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
-        
+
         let set = mesh.edge_tris([ids[0], ids[1]]).collect::<FnvHashSet<_>>();
-        let expected = vec![
-            TriId([ids[0], ids[1], ids[2]])
-        ].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TriId([ids[0], ids[1], ids[2]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
-        
+
         let set = mesh.edge_tris([ids[1], ids[2]]).collect::<FnvHashSet<_>>();
         let expected = vec![
             TriId([ids[0], ids[1], ids[2]]),
             TriId([ids[1], ids[2], ids[3]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        ]
+        .into_iter()
+        .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 
@@ -1163,20 +1252,22 @@ mod tests {
         let set = mesh.vertex_tris(ids[7]).collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
-        
+
         let set = mesh.vertex_tris(ids[6]).collect::<FnvHashSet<_>>();
-        let expected = vec![
-            TriId([ids[4], ids[5], ids[6]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TriId([ids[4], ids[5], ids[6]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
-        
+
         let set = mesh.vertex_tris(ids[1]).collect::<FnvHashSet<_>>();
         let expected = vec![
             TriId([ids[0], ids[1], ids[2]]),
             TriId([ids[1], ids[2], ids[3]]),
             TriId([ids[1], ids[4], ids[2]]),
             TriId([ids[1], ids[5], ids[4]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        ]
+        .into_iter()
+        .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 
@@ -1195,21 +1286,29 @@ mod tests {
         mesh.extend_tets(tets.clone(), || 0, || 0);
         mesh.add_tri([ids[6], ids[7], ids[8]], 7, || 0);
 
-        let set = mesh.tri_tets([ids[6], ids[7], ids[8]]).collect::<FnvHashSet<_>>();
+        let set = mesh
+            .tri_tets([ids[6], ids[7], ids[8]])
+            .collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
-        let set = mesh.tri_tets([ids[4], ids[5], ids[6]]).collect::<FnvHashSet<_>>();
-        let expected = vec![
-            TetId([ids[4], ids[5], ids[6], ids[7]])
-        ].into_iter().collect::<FnvHashSet<_>>();
+        let set = mesh
+            .tri_tets([ids[4], ids[5], ids[6]])
+            .collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
-        let set = mesh.tri_tets([ids[0], ids[2], ids[3]]).collect::<FnvHashSet<_>>();
+        let set = mesh
+            .tri_tets([ids[0], ids[2], ids[3]])
+            .collect::<FnvHashSet<_>>();
         let expected = vec![
             TetId([ids[0], ids[1], ids[2], ids[3]]),
             TetId([ids[0], ids[2], ids[3], ids[4]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        ]
+        .into_iter()
+        .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 
@@ -1235,9 +1334,9 @@ mod tests {
         let list = mesh.edge_tets([ids[6], ids[7]]).collect::<Vec<_>>();
         assert_eq!(list.len(), 1);
         let set = list.into_iter().collect::<FnvHashSet<_>>();
-        let expected = vec![
-            TetId([ids[4], ids[5], ids[6], ids[7]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
         let list = mesh.edge_tets([ids[3], ids[4]]).collect::<Vec<_>>();
@@ -1247,7 +1346,9 @@ mod tests {
             TetId([ids[0], ids[2], ids[3], ids[4]]),
             TetId([ids[2], ids[3], ids[4], ids[5]]),
             TetId([ids[3], ids[4], ids[5], ids[6]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        ]
+        .into_iter()
+        .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 
@@ -1273,9 +1374,9 @@ mod tests {
         let list = mesh.vertex_tets(ids[7]).collect::<Vec<_>>();
         assert_eq!(list.len(), 1);
         let set = list.into_iter().collect::<FnvHashSet<_>>();
-        let expected = vec![
-            TetId([ids[4], ids[5], ids[6], ids[7]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
 
         let list = mesh.vertex_tets(ids[4]).collect::<Vec<_>>();
@@ -1286,7 +1387,9 @@ mod tests {
             TetId([ids[2], ids[3], ids[4], ids[5]]),
             TetId([ids[3], ids[4], ids[5], ids[6]]),
             TetId([ids[4], ids[5], ids[6], ids[7]]),
-        ].into_iter().collect::<FnvHashSet<_>>();
+        ]
+        .into_iter()
+        .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 }

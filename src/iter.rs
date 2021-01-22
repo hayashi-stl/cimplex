@@ -14,12 +14,21 @@ impl<C: Clone, O, I: Iterator, F: FnMut(C, I::Item) -> O> Iterator for MapWith<C
     type Item = O;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|t| (self.combine)(self.common.clone(), t))
+        self.iter
+            .next()
+            .map(|t| (self.combine)(self.common.clone(), t))
     }
 }
 
 pub trait IteratorExt: Iterator {
-    fn map_with<C: Clone, O, F: FnMut(C, Self::Item) -> O>(self, common: C, combine: F) -> MapWith<C, O, Self, F> where Self: Sized {
+    fn map_with<C: Clone, O, F: FnMut(C, Self::Item) -> O>(
+        self,
+        common: C,
+        combine: F,
+    ) -> MapWith<C, O, Self, F>
+    where
+        Self: Sized,
+    {
         MapWith {
             iter: self,
             common,

@@ -1,15 +1,15 @@
 //! Traits and structs related to edges
 
+#[cfg(feature = "serde_")]
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
-#[cfg(feature = "serde_")]
-use serde::{Deserialize, Serialize};
 
-use crate::tri::{HasTris, TriWalker};
-use crate::vertex::internal::{HasVertices as HasVerticesIntr};
-use crate::vertex::{internal::HigherVertex, HasVertices, VertexId};
 use crate::iter::{IteratorExt, MapWith};
+use crate::tri::{HasTris, TriWalker};
+use crate::vertex::internal::HasVertices as HasVerticesIntr;
+use crate::vertex::{internal::HigherVertex, HasVertices, VertexId};
 
 use internal::HasEdges as HasEdgesIntr;
 use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
@@ -67,9 +67,11 @@ pub type EdgesMut<'a, ET> =
     Map<Filter<hash_map::IterMut<'a, EdgeId, ET>, EdgeFilterFnMut<'a, ET>>, EdgeMapFnMut<'a, ET>>;
 
 /// Iterator over the edges pointing out from a vertex.
-pub type VertexEdgesOut<'a, M> = MapWith<VertexId, EdgeId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+pub type VertexEdgesOut<'a, M> =
+    MapWith<VertexId, EdgeId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 /// Iterator over the edges pointing in to a vertex.
-pub type VertexEdgesIn<'a, M> = MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+pub type VertexEdgesIn<'a, M> =
+    MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 
 macro_rules! E {
     () => {
@@ -145,7 +147,8 @@ where
     /// Iterates over the outgoing edges of a vertex.
     /// The vertex must exist.
     fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<Self> {
-        self.vertex_targets(vertex).map_with(vertex, |s, t| EdgeId([s, t]))
+        self.vertex_targets(vertex)
+            .map_with(vertex, |s, t| EdgeId([s, t]))
     }
 
     /// Iterates over the sources of the incoming edges of a vertex.
@@ -172,7 +175,8 @@ where
     /// Iterates over the incoming edges of a vertex.
     /// The vertex must exist.
     fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<Self> {
-        self.vertex_sources(vertex).map_with(vertex, |t, s| EdgeId([s, t]))
+        self.vertex_sources(vertex)
+            .map_with(vertex, |t, s| EdgeId([s, t]))
     }
 
     /// Adds an edge to the mesh. Vertex order is important!

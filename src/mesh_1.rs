@@ -86,7 +86,7 @@ pub(crate) mod internal {
         /// it is just there for the structural purpose of
         /// ensuring that every edge has a twin.
         value: Option<E>,
-    } 
+    }
     #[rustfmt::skip]
     crate::impl_edge!(Edge<E>, new |_id, link, value| Edge { link, value });
 
