@@ -1064,10 +1064,10 @@ mod tests {
         let walker = mesh.tet_walker_from_edge_edge([ids[2], ids[3]], [ids[0], ids[1]]);
         assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
         assert_eq!(walker.opp_edge(), EdgeId([ids[0], ids[1]]));
-        assert_eq!(walker.vertex(), ids[2]);
+        assert_eq!(walker.first(), ids[2]);
         assert_eq!(walker.second(), ids[3]);
         assert_eq!(walker.third(), ids[0]);
-        assert_eq!(walker.opp_vertex(), ids[1]);
+        assert_eq!(walker.fourth(), ids[1]);
         assert_eq!(
             walker.tri(),
             [ids[2], ids[3], ids[0]].try_into().ok().unwrap()

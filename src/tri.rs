@@ -1,12 +1,13 @@
 //! Traits and structs related to triangles
 
+use nalgebra::{DefaultAllocator, allocator::Allocator};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
 
-use crate::edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut};
+use crate::{edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut}, vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position, internal::Vertex}};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::internal::HasTris as HasTrisIntr;
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
@@ -94,7 +95,7 @@ impl TriId {
     }
 
     /// Sets the opposite vertex of some edge to some vertex.
-    fn opp(mut self, edge: EdgeId, vertex: VertexId) -> Self {
+    fn with_opp(mut self, edge: EdgeId, vertex: VertexId) -> Self {
         self.0[self.opp_index(edge)] = vertex;
         self.0 = Self::canonicalize(self.0);
         self
@@ -201,7 +202,7 @@ where
     /// The edge must exist.
     fn edge_vertex_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeVertexOpps<Self> {
         if let Some(walker) = self.tri_walker_from_edge(edge) {
-            let start_opp = walker.opp();
+            let start_opp = walker.third();
             EdgeVertexOpps {
                 walker,
                 start_opp,
@@ -270,19 +271,19 @@ where
                         (*opp, *opp)
                     } else {
                         let side = [edge.0[0], edge.0[1], target].try_into().ok().unwrap();
-                        let prev = self.tris_r()[&side].opp(side, *edge).prev;
+                        let prev = self.tris_r()[&side].link(side, *edge).prev;
                         let next = target;
-                        let prev_tri = id.opp(*edge, prev);
-                        let next_tri = id.opp(*edge, next);
+                        let prev_tri = id.with_opp(*edge, prev);
+                        let next_tri = id.with_opp(*edge, next);
                         self.tris_r_mut()
                             .get_mut(&prev_tri)
                             .unwrap()
-                            .opp_mut(prev_tri, *edge)
+                            .link_mut(prev_tri, *edge)
                             .next = *opp;
                         self.tris_r_mut()
                             .get_mut(&next_tri)
                             .unwrap()
-                            .opp_mut(next_tri, *edge)
+                            .link_mut(next_tri, *edge)
                             .prev = *opp;
                         (prev, next)
                     };
@@ -368,19 +369,19 @@ where
                 let mut delete_tri = |id: TriId| {
                     for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
                         let tri = &self.tris_r()[&id];
-                        let prev = tri.opps()[i].prev;
-                        let next = tri.opps()[i].next;
-                        let prev_tri = id.opp(*edge, prev);
-                        let next_tri = id.opp(*edge, next);
+                        let prev = tri.links()[i].prev;
+                        let next = tri.links()[i].next;
+                        let prev_tri = id.with_opp(*edge, prev);
+                        let next_tri = id.with_opp(*edge, next);
                         self.tris_r_mut()
                             .get_mut(&prev_tri)
                             .unwrap()
-                            .opp_mut(prev_tri, *edge)
+                            .link_mut(prev_tri, *edge)
                             .next = next;
                         self.tris_r_mut()
                             .get_mut(&next_tri)
                             .unwrap()
-                            .opp_mut(next_tri, *edge)
+                            .link_mut(next_tri, *edge)
                             .prev = prev;
 
                         let source = self.edges_r_mut().get_mut(&edge).unwrap();
@@ -542,7 +543,7 @@ where
         };
         let mut tri = start;
         while mesh.tris_r()[&tri].value().is_none() {
-            tri = tri.opp(edge, mesh.tris_r()[&tri].opp(tri, edge).next);
+            tri = tri.with_opp(edge, mesh.tris_r()[&tri].link(tri, edge).next);
             if tri == start {
                 return None;
             }
@@ -569,7 +570,7 @@ where
 
     /// Get the current vertex id,
     /// which is the source of the current tri edge.
-    pub fn vertex(&self) -> VertexId {
+    pub fn first(&self) -> VertexId {
         self.edge.0[0]
     }
 
@@ -584,22 +585,22 @@ where
     }
 
     /// Gets the opposite vertex of the current triangle
-    pub fn opp(&self) -> VertexId {
+    pub fn third(&self) -> VertexId {
         self.opp
     }
 
     /// Gets the current triangle id
     pub fn tri(&self) -> TriId {
         TriId(TriId::canonicalize([
-            self.vertex(),
+            self.first(),
             self.second(),
-            self.opp(),
+            self.third(),
         ]))
     }
 
     /// Gets the current list of vertices in order
     pub fn vertices(&self) -> [VertexId; 3] {
-        [self.vertex(), self.second(), self.opp()]
+        [self.first(), self.second(), self.third()]
     }
 
     /// Reverse the walker's direction so its
@@ -623,7 +624,7 @@ where
 
     /// Sets the current edge to the next one in the same triangle.
     pub fn next_edge(mut self) -> Self {
-        let (edge, opp) = (EdgeId([self.second(), self.opp()]), self.vertex());
+        let (edge, opp) = (EdgeId([self.second(), self.third()]), self.first());
         self.edge = edge;
         self.opp = opp;
         self
@@ -631,7 +632,7 @@ where
 
     /// Sets the current edge to the previous one in the same triangle.
     pub fn prev_edge(mut self) -> Self {
-        let (edge, opp) = (EdgeId([self.opp(), self.vertex()]), self.second());
+        let (edge, opp) = (EdgeId([self.third(), self.first()]), self.second());
         self.edge = edge;
         self.opp = opp;
         self
@@ -641,7 +642,7 @@ where
     pub fn next_opp(mut self) -> Self {
         while {
             let tri = self.tri();
-            self.opp = self.mesh.tris_r()[&self.tri()].opp(tri, self.edge).next;
+            self.opp = self.mesh.tris_r()[&self.tri()].link(tri, self.edge).next;
             self.mesh.tris_r()[&self.tri()].value().is_none()
         } {}
         self
@@ -651,7 +652,7 @@ where
     pub fn prev_opp(mut self) -> Self {
         while {
             let tri = self.tri();
-            self.opp = self.mesh.tris_r()[&self.tri()].opp(tri, self.edge).prev;
+            self.opp = self.mesh.tris_r()[&self.tri()].link(tri, self.edge).prev;
             self.mesh.tris_r()[&self.tri()].value().is_none()
         } {}
         self
@@ -747,9 +748,9 @@ where
             return None;
         }
 
-        let opp = self.walker.opp();
+        let opp = self.walker.third();
         self.walker = self.walker.next_opp();
-        if self.walker.opp() == self.start_opp {
+        if self.walker.third() == self.start_opp {
             self.finished = true;
         }
         Some(opp)
@@ -790,6 +791,24 @@ macro_rules! impl_index_tri {
     };
 }
 
+/// For concrete simplicial complexes with triangles
+pub trait HasPositionAndTris: HasTris + HasPosition
+where
+    <Self::Vertex as Vertex>::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+    Self::Vertex: HigherVertex,
+    Self::Edge: HigherEdge,
+{
+    /// Gets the positions of the vertices of an triangle
+    fn tri_positions<FI: TryInto<TriId>>(&self, tri: FI) -> Option<[HasPositionPoint<Self>; 3]> {
+        let tri = tri.try_into().ok()?;
+        let v0 = self.position(tri.0[0])?;
+        let v1 = self.position(tri.0[1])?;
+        let v2 = self.position(tri.0[2])?;
+        Some([v0, v1, v2])
+    }
+}
+
 pub(crate) mod internal {
     use fnv::FnvHashMap;
 
@@ -814,11 +833,11 @@ pub(crate) mod internal {
                     $new
                 }
 
-                fn opps(&self) -> &[crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+                fn links(&self) -> &[crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
                     &self.links
                 }
 
-                fn opps_mut(
+                fn links_mut(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
                     &mut self.links
@@ -890,9 +909,9 @@ pub(crate) mod internal {
         /// of the tetrahedron.
         fn new(id: VertexId, links: [Link<VertexId>; 3], value: Option<Self::F>) -> Self;
 
-        fn opps(&self) -> &[Link<VertexId>; 3];
+        fn links(&self) -> &[Link<VertexId>; 3];
 
-        fn opps_mut(&mut self) -> &mut [Link<VertexId>; 3];
+        fn links_mut(&mut self) -> &mut [Link<VertexId>; 3];
 
         fn to_value(self) -> Option<Self::F>;
 
@@ -900,12 +919,12 @@ pub(crate) mod internal {
 
         fn value_mut(&mut self) -> &mut Option<Self::F>;
 
-        fn opp(&self, id: TriId, edge: EdgeId) -> &Link<VertexId> {
-            &self.opps()[id.index(edge.0[0])]
+        fn link(&self, id: TriId, edge: EdgeId) -> &Link<VertexId> {
+            &self.links()[id.index(edge.0[0])]
         }
 
-        fn opp_mut(&mut self, id: TriId, edge: EdgeId) -> &mut Link<VertexId> {
-            &mut self.opps_mut()[id.index(edge.0[0])]
+        fn link_mut(&mut self, id: TriId, edge: EdgeId) -> &mut Link<VertexId> {
+            &mut self.links_mut()[id.index(edge.0[0])]
         }
     }
 

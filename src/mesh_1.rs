@@ -464,8 +464,8 @@ mod tests {
 
         let walker = mesh.edge_walker_from_edge([ids[3], ids[1]]);
         assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
-        assert_eq!(walker.vertex(), ids[3]);
-        assert_eq!(walker.target(), ids[1]);
+        assert_eq!(walker.first(), ids[3]);
+        assert_eq!(walker.second(), ids[1]);
 
         let walker = walker.next();
         assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
@@ -500,8 +500,8 @@ mod tests {
         assert!(walker.backward().is_none());
 
         let walker = walker.next_in();
-        assert_ne!(walker.vertex(), ids[0]);
-        assert_eq!(walker.target(), ids[3]);
+        assert_ne!(walker.first(), ids[0]);
+        assert_eq!(walker.second(), ids[3]);
 
         let walker = walker.prev_in();
         assert_eq!(walker.edge(), EdgeId([ids[0], ids[3]]));

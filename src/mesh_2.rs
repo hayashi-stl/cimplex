@@ -126,6 +126,14 @@ pub(crate) mod internal {
     #[rustfmt::skip]
     crate::impl_tri!(Tri<F>, new |_id, links, value| Tri { links, value });
 
+    /// An triangle of a manifold triangle mesh, possibly with boundary
+    #[derive(Clone, Debug)]
+    #[doc(hidden)]
+    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    pub struct ManifoldTri<F> {
+        value: Option<F>,
+    }
+
     impl<V, E, F> RemoveVertexHigher for ComboMesh2<V, E, F> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -799,9 +807,9 @@ mod tests {
 
         let walker = mesh.tri_walker_from_edge_vertex([ids[0], ids[1]], ids[2]);
         assert_eq!(walker.edge(), EdgeId([ids[0], ids[1]]));
-        assert_eq!(walker.vertex(), ids[0]);
+        assert_eq!(walker.first(), ids[0]);
         assert_eq!(walker.second(), ids[1]);
-        assert_eq!(walker.opp(), ids[2]);
+        assert_eq!(walker.third(), ids[2]);
         assert_eq!(
             walker.tri(),
             [ids[0], ids[1], ids[2]].try_into().ok().unwrap()
@@ -809,40 +817,40 @@ mod tests {
 
         let walker = walker.next_edge();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
-        assert_eq!(walker.opp(), ids[0]);
+        assert_eq!(walker.third(), ids[0]);
 
         let walker = walker.next_edge();
         assert_eq!(walker.edge(), EdgeId([ids[2], ids[0]]));
-        assert_eq!(walker.opp(), ids[1]);
+        assert_eq!(walker.third(), ids[1]);
 
         let walker = walker.prev_edge();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
-        assert_eq!(walker.opp(), ids[0]);
+        assert_eq!(walker.third(), ids[0]);
 
         let walker = walker.next_opp();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
-        assert_eq!(walker.opp(), ids[3]);
+        assert_eq!(walker.third(), ids[3]);
 
         let branch = walker.prev_opp(); // different name!
         assert_eq!(branch.edge(), EdgeId([ids[1], ids[2]]));
-        assert_eq!(branch.opp(), ids[0]);
+        assert_eq!(branch.third(), ids[0]);
 
         let walker = walker.on_twin_edge().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[2], ids[1]]));
-        assert_eq!(walker.opp(), ids[4]);
+        assert_eq!(walker.third(), ids[4]);
 
         assert!(walker.twin().is_none());
 
         let walker = walker.prev_edge();
         assert_eq!(walker.edge(), EdgeId([ids[4], ids[2]]));
-        assert_eq!(walker.opp(), ids[1]);
+        assert_eq!(walker.third(), ids[1]);
 
         assert!(walker.on_twin_edge().is_none());
 
         let walker = mesh.tri_walker_from_edge_vertex([ids[4], ids[6]], ids[5]);
         let walker = walker.twin().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[6], ids[4]]));
-        assert_eq!(walker.opp(), ids[5]);
+        assert_eq!(walker.third(), ids[5]);
     }
 
     #[test]

@@ -5,11 +5,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
+use nalgebra::DefaultAllocator;
+use nalgebra::allocator::Allocator;
 
-use crate::iter::{IteratorExt, MapWith};
+use crate::{iter::{IteratorExt, MapWith}, vertex::HasPosition};
 use crate::tri::{HasTris, TriWalker};
+use crate::vertex::{HasPositionDim, HasPositionPoint, Position};
 use crate::vertex::internal::HasVertices as HasVerticesIntr;
-use crate::vertex::{internal::HigherVertex, HasVertices, VertexId};
+use crate::vertex::{internal::{HigherVertex, Vertex}, HasVertices, VertexId};
 
 use internal::HasEdges as HasEdgesIntr;
 use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
@@ -48,7 +51,7 @@ impl EdgeId {
     }
 
     /// Sets the target. Assumes it doesn't equal the source.
-    fn target(mut self, vertex: VertexId) -> Self {
+    fn with_target(mut self, vertex: VertexId) -> Self {
         self.0[1] = vertex;
         debug_assert_ne!(self.0[0], self.0[1]);
         self
@@ -129,7 +132,7 @@ where
     /// The vertex must exist.
     fn vertex_targets(&self, vertex: VertexId) -> VertexTargets<Self> {
         if let Some(walker) = self.edge_walker_from_vertex(vertex) {
-            let start_target = walker.target();
+            let start_target = walker.second();
             VertexTargets {
                 walker,
                 start_target,
@@ -157,7 +160,7 @@ where
         if let Some(walker) =
             EdgeWalker::from_vertex_less_checked(self, vertex).and_then(|w| w.backward())
         {
-            let start_source = walker.vertex();
+            let start_source = walker.first();
             VertexSources {
                 walker,
                 start_source,
@@ -209,18 +212,18 @@ where
                     (id.0[1], id.0[1])
                 } else {
                     let prev = self.edges_r()[&[id.0[0], target].try_into().ok().unwrap()]
-                        .targets()
+                        .link()
                         .prev;
                     let next = target;
                     self.edges_r_mut()
-                        .get_mut(&id.target(prev))
+                        .get_mut(&id.with_target(prev))
                         .unwrap()
-                        .targets_mut()
+                        .link_mut()
                         .next = id.0[1];
                     self.edges_r_mut()
-                        .get_mut(&id.target(next))
+                        .get_mut(&id.with_target(next))
                         .unwrap()
-                        .targets_mut()
+                        .link_mut()
                         .prev = id.0[1];
                     (prev, next)
                 };
@@ -275,17 +278,17 @@ where
 
                 let mut delete_edge = |id: EdgeId| {
                     let edge = &self.edges_r()[&id];
-                    let prev = edge.targets().prev;
-                    let next = edge.targets().next;
+                    let prev = edge.link().prev;
+                    let next = edge.link().next;
                     self.edges_r_mut()
-                        .get_mut(&id.target(prev))
+                        .get_mut(&id.with_target(prev))
                         .unwrap()
-                        .targets_mut()
+                        .link_mut()
                         .next = next;
                     self.edges_r_mut()
-                        .get_mut(&id.target(next))
+                        .get_mut(&id.with_target(next))
                         .unwrap()
-                        .targets_mut()
+                        .link_mut()
                         .prev = prev;
 
                     let source = &mut self.vertices_r_mut()[id.0[0]];
@@ -351,6 +354,31 @@ where
 }
 
 /// A walker for navigating a simplicial complex by edge.
+///
+/// Anatomy of the edge walker:
+/// ```notrust
+///                  edge
+///  first @ ─────────────────────> @ second
+/// ```
+///
+/// Movement of the edge walker:
+/// ```notrust
+///                            twin
+///         prev          <───────────────        next_in
+///  @ <─────────────── @ ───────────────> @ <────────────── @
+///    ───────────────> │r  · (edge)· · · /^ ──────────────> 
+///       backward      │ \ · · · · · ·  / │     forward
+///                     │  \  · · · · · /  │        
+///                next │   \tri_walker/   │ prev_in
+///                     │    \  · · · /    │      
+///                     │     \ · ·  /     │       
+///                     │      \  · /      │
+///                     v       \  /       │
+///                     @        \L        @
+///                              @
+/// ```
+/// The edges that `next` and `prev` reference is in no particular order.
+/// The same is true for `next_in` and `prev_in`.
 #[derive(Debug)]
 pub struct EdgeWalker<'a, M: ?Sized>
 where
@@ -410,7 +438,7 @@ where
         };
         let mut edge = start;
         while mesh.edges_r()[&edge].value().is_none() {
-            edge = edge.target(mesh.edges_r()[&edge].targets().next);
+            edge = edge.with_target(mesh.edges_r()[&edge].link().next);
             if edge == start {
                 return None;
             }
@@ -434,12 +462,12 @@ where
 
     /// Get the current vertex id,
     /// which is the source of the current edge.
-    pub fn vertex(&self) -> VertexId {
+    pub fn first(&self) -> VertexId {
         self.edge.0[0]
     }
 
     /// Get the vertex id of the target of the current edge.
-    pub fn target(&self) -> VertexId {
+    pub fn second(&self) -> VertexId {
         self.edge.0[1]
     }
 
@@ -450,7 +478,7 @@ where
 
     /// Gets the current list of vertices in order
     pub fn vertices(&self) -> [VertexId; 2] {
-        [self.vertex(), self.target()]
+        [self.first(), self.second()]
     }
 
     /// Reverse the walker's direction so its
@@ -470,7 +498,7 @@ where
         while {
             self.edge = self
                 .edge
-                .target(self.mesh.edges_r()[&self.edge].targets().next);
+                .with_target(self.mesh.edges_r()[&self.edge].link().next);
             self.mesh.edge(self.edge).is_none()
         } {}
         self
@@ -481,7 +509,7 @@ where
         while {
             self.edge = self
                 .edge
-                .target(self.mesh.edges_r()[&self.edge].targets().prev);
+                .with_target(self.mesh.edges_r()[&self.edge].link().prev);
             self.mesh.edge(self.edge).is_none()
         } {}
         self
@@ -493,7 +521,7 @@ where
             self.edge = self
                 .edge
                 .twin()
-                .target(self.mesh.edges_r()[&self.edge.twin()].targets().next)
+                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().next)
                 .twin();
             self.mesh.edge(self.edge).is_none()
         } {}
@@ -506,7 +534,7 @@ where
             self.edge = self
                 .edge
                 .twin()
-                .target(self.mesh.edges_r()[&self.edge.twin()].targets().prev)
+                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().prev)
                 .twin();
             self.mesh.edge(self.edge).is_none()
         } {}
@@ -522,7 +550,7 @@ where
         while {
             self.edge = self
                 .edge
-                .target(self.mesh.edges_r()[&self.edge].targets().next);
+                .with_target(self.mesh.edges_r()[&self.edge].link().next);
             if self.mesh.edge(self.edge).is_some() {
                 false
             } else if self.edge == twin {
@@ -549,7 +577,7 @@ where
             self.edge = self
                 .edge
                 .twin()
-                .target(self.mesh.edges_r()[&self.edge.twin()].targets().next)
+                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().next)
                 .twin();
             if self.mesh.edge(self.edge).is_some() {
                 false
@@ -602,7 +630,7 @@ where
             return None;
         }
 
-        let target = self.walker.target();
+        let target = self.walker.second();
         self.walker = self.walker.next();
         if self.walker.edge().0[1] == self.start_target {
             self.finished = true;
@@ -637,7 +665,7 @@ where
             return None;
         }
 
-        let source = self.walker.vertex();
+        let source = self.walker.first();
         self.walker = self.walker.next_in();
         if self.walker.edge().0[0] == self.start_source {
             self.finished = true;
@@ -645,7 +673,6 @@ where
         Some(source)
     }
 }
-
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_index_edge {
@@ -680,6 +707,23 @@ macro_rules! impl_index_edge {
     };
 }
 
+/// For concrete simplicial complexes with edges
+pub trait HasPositionAndEdges: HasEdges + HasPosition
+where
+    <Self::Vertex as Vertex>::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+    Self::Vertex: HigherVertex,
+{
+    /// Gets the positions of the vertices of an edge
+    fn edge_positions<EI: TryInto<EdgeId>>(&self, edge: EI) -> Option<[HasPositionPoint<Self>; 2]> {
+        let edge = edge.try_into().ok()?;
+        let v0 = self.position(edge.0[0])?;
+        let v1 = self.position(edge.0[1])?;
+        Some([v0, v1])
+    }
+}
+
+
 pub(crate) mod internal {
     use super::EdgeId;
     use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
@@ -699,11 +743,11 @@ pub(crate) mod internal {
                     $new
                 }
 
-                fn targets(&self) -> &crate::edge::internal::Link<crate::vertex::VertexId> {
+                fn link(&self) -> &crate::edge::internal::Link<crate::vertex::VertexId> {
                     &self.link
                 }
 
-                fn targets_mut(
+                fn link_mut(
                     &mut self,
                 ) -> &mut crate::edge::internal::Link<crate::vertex::VertexId> {
                     &mut self.link
@@ -791,9 +835,9 @@ pub(crate) mod internal {
         /// of the triangle.
         fn new(id: VertexId, link: Link<VertexId>, value: Option<Self::E>) -> Self;
 
-        fn targets(&self) -> &Link<VertexId>;
+        fn link(&self) -> &Link<VertexId>;
 
-        fn targets_mut(&mut self) -> &mut Link<VertexId>;
+        fn link_mut(&mut self) -> &mut Link<VertexId>;
 
         fn to_value(self) -> Option<Self::E>;
 

@@ -4,8 +4,51 @@ use idmap::table::DenseEntryTable;
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
+use nalgebra::{Point, DimName, DefaultAllocator};
+use nalgebra::allocator::Allocator;
 
-use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex};
+use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex, HasVertices as HasVerticesIntr};
+
+pub(crate) type PositionDim<P> = <P as Position>::Dim;
+pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
+pub(crate) type HasPositionDim<P> = <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
+pub(crate) type HasPositionPoint<P> = Point<f64, HasPositionDim<P>>;
+
+/// For values that can represent a position.
+pub trait Position
+where
+    DefaultAllocator: Allocator<f64, <Self as Position>::Dim>
+{
+    /// The number of dimensions in the position
+    type Dim: DimName;
+
+    /// The actual position represented
+    fn position(&self) -> PositionPoint<Self>;
+}
+
+/// Not a blanket implementation because
+/// I also want to implement this for tuples
+impl<D: DimName> Position for Point<f64, D>
+where 
+    DefaultAllocator: Allocator<f64, D>
+{
+    type Dim = D;
+
+    fn position(&self) -> PositionPoint<Self> {
+        self.clone()
+    }
+}
+
+impl<D: DimName, V> Position for (Point<f64, D>, V)
+where
+    DefaultAllocator: Allocator<f64, D>
+{
+    type Dim = D;
+
+    fn position(&self) -> PositionPoint<Self> {
+        self.0.clone()
+    }
+}
 
 /// An index to a vertex of a mesh.
 /// Will not be invalidated unless the vertex gets removed.
@@ -119,6 +162,18 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
     fn clear_vertices(&mut self) {
         self.clear_vertices_higher();
         self.vertices_r_mut().clear();
+    }
+}
+
+/// For concrete simplicial complexes
+pub trait HasPosition: HasVertices
+where
+    <Self::Vertex as Vertex>::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+{
+    /// Gets the position of a vertex.
+    fn position(&self, vertex: VertexId) -> Option<HasPositionPoint<Self>> {
+        self.vertex(vertex).map(|v| v.position())
     }
 }
 

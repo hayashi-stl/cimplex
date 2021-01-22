@@ -1,4 +1,5 @@
 //! Cimplex (prononuced KIM-plex) is a simplicial complex library.
+//! Assumes double floating-point precision for now at least
 
 use std::convert::TryInto;
 
