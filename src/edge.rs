@@ -444,6 +444,11 @@ where
         self.edge
     }
 
+    /// Gets the current list of vertices in order
+    pub fn vertices(&self) -> [VertexId; 2] {
+        [self.vertex(), self.target()]
+    }
+
     /// Reverse the walker's direction so its
     /// current edge is the opposite edge.
     /// Returns None if the resulting edge doesn't exist.

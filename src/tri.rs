@@ -81,7 +81,7 @@ impl TriId {
     }
 
     /// Gets the index of the opposite vertex of an edge, assuming it's part of the triangle
-    fn opp_index(self, edge: EdgeId) -> usize {
+    pub(crate) fn opp_index(self, edge: EdgeId) -> usize {
         (self.index(edge.0[0]) + 2) % 3
     }
 
@@ -455,6 +455,8 @@ where
 
     /// Gets a triangle walker that starts at the given triangle.
     /// It must actually exist.
+    /// Be warned that this does not preserve the order of the vertices
+    /// because the triangle id is canonicalized.
     fn tri_walker_from_tri<FI: TryInto<TriId>>(
         &self,
         tri: FI,
@@ -583,6 +585,11 @@ where
             self.second(),
             self.opp(),
         ]))
+    }
+
+    /// Gets the current list of vertices in order
+    pub fn vertices(&self) -> [VertexId; 3] {
+        [self.vertex(), self.second(), self.opp()]
     }
 
     /// Reverse the walker's direction so its

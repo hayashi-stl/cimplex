@@ -535,6 +535,8 @@ where
 
     /// Gets a tetrahedron walker that starts at the given triangle.
     /// Returns None if the triangle has no tetrahedron.
+    /// Be warned that this does not preserve the order of the vertices
+    /// because the triangle id is canonicalized.
     fn tet_walker_from_tri<FI: TryInto<TriId>>(
         &self,
         tri: FI
@@ -555,6 +557,8 @@ where
 
     /// Gets a tetrahedron walker that starts at the given tetrahedron.
     /// It must actually exist.
+    /// Be warned that this does not preserve the order of the vertices
+    /// because the tetrahedron id is canonicalized.
     fn tet_walker_from_tet<TI: TryInto<TetId>>(
         &self,
         tet: TI,
@@ -646,8 +650,7 @@ where
             }
         }
 
-        let index = tet.index(edge.0[0]);
-        let (_, opp) = tet.tris_and_opp()[index];
+        let opp = tet.0[tet.opp_index(tri)];
         Some(Self::new(mesh, edge, EdgeId([vertex, opp])))
     }
 
@@ -683,7 +686,7 @@ where
 
     /// Get the vertex id of the source of the current opposite edge.
     pub fn third(&self) -> VertexId {
-        self.edge.0[1]
+        self.opp.0[0]
     }
 
     /// Gets the opposite vertex of the current triangle
@@ -703,6 +706,11 @@ where
             self.second(),
             self.third(),
         ]))
+    }
+
+    /// Gets the current list of vertices in order
+    pub fn vertices(&self) -> [VertexId; 4] {
+        [self.vertex(), self.second(), self.third(), self.opp_vertex()]
     }
 
     /// Gets the current tetrahedron id
@@ -752,7 +760,7 @@ where
 
     /// Sets the current triangle to the next one in the same tetrahedron.
     pub fn next_tri(mut self) -> Self {
-        let (v0, v1, v2, v3) = if self.tet().0.iter().enumerate().min_by_key(|(_, id)| **id).unwrap().0 % 2 == 0 {
+        let (v0, v1, v2, v3) = if self.vertices().iter().enumerate().min_by_key(|(_, id)| **id).unwrap().0 % 2 == 0 {
             (self.opp_vertex(), self.third(), self.second(), self.vertex())
         } else {
             (self.second(), self.vertex(), self.opp_vertex(), self.third())
@@ -764,7 +772,7 @@ where
     }
 
     /// Switches the current edge and opposite edge
-    pub fn flip(mut self) -> Self {
+    pub fn flip_tri(mut self) -> Self {
         let (v0, v1, v2, v3) = (self.third(), self.opp_vertex(), self.vertex(), self.second());
         self.edge = EdgeId([v0, v1]);
         self.opp = EdgeId([v2, v3]);
@@ -773,7 +781,7 @@ where
 
     /// Sets the current triangle to the previous one in the same tetrahedron.
     pub fn prev_tri(mut self) -> Self {
-        let (v0, v1, v2, v3) = if self.tet().0.iter().enumerate().min_by_key(|(_, id)| **id).unwrap().0 % 2 != 0 {
+        let (v0, v1, v2, v3) = if self.vertices().iter().enumerate().min_by_key(|(_, id)| **id).unwrap().0 % 2 != 0 {
             (self.opp_vertex(), self.third(), self.second(), self.vertex())
         } else {
             (self.second(), self.vertex(), self.opp_vertex(), self.third())
@@ -844,17 +852,22 @@ where
         let mut next;
 
         while let Some(edge) = {
-            next = self.opps.as_mut().and_then(|iter| iter.next().and_then(|opp| {
-                let tri = TriId(TriId::canonicalize([iter.tris.walker.second(), opp.0[1], opp.0[0]]));
+            while {
+                let mut non_canonical = false;
 
-                // Triangles would have 3 copies, one for each cyclic permutation,
-                // if we don't deduplicate.
-                if tri.0[0] == iter.tris.walker.second() {
-                    Some(tri)
-                } else {
-                    None
-                }
-            }));
+                next = self.opps.as_mut().and_then(|iter| iter.next().map(|opp| {
+                    let tri = TriId(TriId::canonicalize([iter.tris.walker.second(), opp.0[1], opp.0[0]]));
+
+                    // Triangles would have 3 copies, one for each cyclic permutation,
+                    // if we don't deduplicate.
+                    if tri.0[0] != iter.tris.walker.second() {
+                        non_canonical = true;
+                    }
+                    tri
+                }));
+
+                non_canonical
+            } {}
 
             if next.is_none() { self.edges.next() } else { None }
         } {
@@ -899,9 +912,11 @@ where
         let edge = self.tris.walker.edge();
 
         while let Some(third) = {
-            let third = self.tris.walker.opp();
-            next = self.opps.as_mut().and_then(|iter| iter.next().map(|opp| 
-                EdgeId([third, opp])));
+            next = self.opps.as_mut().and_then(|iter| iter.next().map(|opp| {
+                let tri = iter.walker.tri();
+                let third = tri.0[tri.opp_index(edge)];
+                EdgeId([third, opp])
+            }));
             if next.is_none() { self.tris.next() } else { None }
         } {
             self.opps = Some(self.mesh.tri_vertex_opps(TriId(TriId::canonicalize([edge.0[0], edge.0[1], third]))));
