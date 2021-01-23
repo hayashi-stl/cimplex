@@ -264,9 +264,9 @@ where
 
     /// Iterates over the tetrahedrons that a vertex is part of.
     /// The vertex must exist.
-    fn vertex_tets(&self, vertex: VertexId) -> VertexTets<Self>
+    fn vertex_tets<'a>(&'a self, vertex: VertexId) -> VertexTets<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>,
     {
         self.vertex_tri_opps(vertex)
             .map_with(vertex, |vertex, opp| {
@@ -286,9 +286,9 @@ where
 
     /// Iterates over the tetrahedrons that an edge is part of.
     /// The edge must exist.
-    fn edge_tets<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTets<Self>
+    fn edge_tets<'a, EI: TryInto<EdgeId>>(&'a self, edge: EI) -> EdgeTets<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>,
     {
         let edge = edge.try_into().ok().unwrap();
         self.edge_edge_opps(edge).map_with(edge, |edge, opp| {
@@ -300,9 +300,9 @@ where
 
     /// Iterates over the opposite vertices of the tetrahedrons that a triangle is part of.
     /// The triangle must exist.
-    fn tri_vertex_opps<TI: TryInto<TriId>>(&self, tri: TI) -> TriVertexOpps<Self>
+    fn tri_vertex_opps<'a, TI: TryInto<TriId>>(&'a self, tri: TI) -> TriVertexOpps<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         if let Some(walker) = self.tet_walker_from_tri(tri) {
             let start_opp = walker.fourth();
@@ -322,9 +322,9 @@ where
 
     /// Iterates over the tetrahedrons that an triangle is part of.
     /// The triangle must exist.
-    fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self>
+    fn tri_tets<'a, FI: TryInto<TriId>>(&'a self, tri: FI) -> TriTets<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         let tri = tri.try_into().ok().unwrap();
         self.tri_vertex_opps(tri).map_with(tri, |tri, opp| {
@@ -367,9 +367,9 @@ where
     /// or None if there was nothing there.
     /// Removes the edges and tris that are part of the tetrahedron if they are part of no other tetrahedrons
     /// and the tetrahedron to be removed exists.
-    fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()>
+    fn remove_tet<'a, TI: TryInto<TetId>>(&'a mut self, id: TI) -> Option<T!()>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        for<'b: 'a> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let id = match id.try_into() {
             Ok(id) => id,
@@ -395,9 +395,9 @@ where
     fn remove_tet_keep_tris<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()>;
 
     /// Removes a list of tetrahedrons.
-    fn remove_tets<TI: TryInto<TetId>, I: IntoIterator<Item = TI>>(&mut self, iter: I)
+    fn remove_tets<'a, TI: TryInto<TetId>, I: IntoIterator<Item = TI>>(&'a mut self, iter: I)
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         for tet in iter {
             self.remove_tet(tet);
@@ -412,9 +412,9 @@ where
     }
 
     /// Keeps only the tetrahedrons that satisfy a predicate
-    fn retain_tets<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P)
+    fn retain_tets<'a, P: FnMut(TetId, &'a T!()) -> bool>(&'a mut self, mut predicate: P)
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         let to_remove = self
             .tets()
@@ -449,24 +449,24 @@ where
     /// Gets a tetrahedron walker that starts at the given edge with a given vertex
     /// to form the starting triangle.
     /// Returns None if the triangle formed has no tetrahedron.
-    fn tet_walker_from_edge_vertex<EI: TryInto<EdgeId>>(
-        &self,
+    fn tet_walker_from_edge_vertex<'a, EI: TryInto<EdgeId>>(
+        &'a self,
         edge: EI,
         vertex: VertexId,
-    ) -> Option<HasTetsWalker<Self>>
+    ) -> Option<HasTetsWalker<'a, Self>>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
-        HasTetsWalker::<Self>::from_edge_vertex(self, edge, vertex)
+        HasTetsWalker::<'a, Self>::from_edge_vertex(self, edge, vertex)
     }
 
     /// Gets a tetrahedron walker that starts at the given triangle.
     /// Returns None if the triangle has no tetrahedron.
     /// Be warned that this does not preserve the order of the vertices
     /// because the triangle id is canonicalized.
-    fn tet_walker_from_tri<FI: TryInto<TriId>>(&self, tri: FI) -> Option<HasTetsWalker<Self>>
+    fn tet_walker_from_tri<'a, FI: TryInto<TriId>>(&'a self, tri: FI) -> Option<HasTetsWalker<'a, Self>>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         let tri = tri.try_into().ok().unwrap();
         self.tet_walker_from_edge_vertex(tri.edges()[0], tri.0[2])
@@ -474,27 +474,27 @@ where
 
     /// Gets a tetrahedron walker that starts at the given edge with the given opposite edge.
     /// They must actually exist.
-    fn tet_walker_from_edge_edge<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(
-        &self,
+    fn tet_walker_from_edge_edge<'a, EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(
+        &'a self,
         edge: EI,
         opp: EJ,
-    ) -> HasTetsWalker<Self>
+    ) -> HasTetsWalker<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
-        HasTetsWalker::<Self>::new(self, edge, opp)
+        HasTetsWalker::<'a, Self>::new(self, edge, opp)
     }
 
     /// Gets a tetrahedron walker that starts at the given tetrahedron.
     /// It must actually exist.
     /// Be warned that this does not preserve the order of the vertices
     /// because the tetrahedron id is canonicalized.
-    fn tet_walker_from_tet<TI: TryInto<TetId>>(&self, tet: TI) -> HasTetsWalker<Self>
+    fn tet_walker_from_tet<'a, TI: TryInto<TetId>>(&'a self, tet: TI) -> HasTetsWalker<'a, Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
+        HasTetsWalker<'a, Self>: TetWalk<'a, Mesh = Self>
     {
         let tet = tet.try_into().ok().unwrap();
-        HasTetsWalker::<Self>::new(
+        HasTetsWalker::<'a, Self>::new(
             self,
             EdgeId([tet.0[0], tet.0[1]]),
             EdgeId([tet.0[2], tet.0[3]]),
@@ -850,7 +850,7 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
+    HasTetsWalker<'a, M>: TetWalk<'a, Mesh = M>,
 {
     type Item = TriId;
 
@@ -920,7 +920,7 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
+    HasTetsWalker<'a, M>: TetWalk<'a, Mesh = M>,
 {
     type Item = EdgeId;
 
@@ -978,7 +978,7 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
+    HasTetsWalker<'a, M>: TetWalk<'a, Mesh = M>,
 {
     type Item = VertexId;
 
@@ -1226,8 +1226,8 @@ pub(crate) mod internal {
         fn num_tets_r_mut(&mut self) -> &mut usize;
     }
 
-    pub(crate) fn add_tet_manifold<M: super::HasTets, TI: TryInto<TetId>>(
-        mesh: &mut M,
+    pub(crate) fn add_tet_manifold<'a, M: super::HasTets, TI: TryInto<TetId>>(
+        mesh: &'a mut M,
         vertices: TI,
         value: <M::Tet as Tet>::T,
         tri_value: impl Fn() -> <M::Tri as Tri>::F,
@@ -1238,7 +1238,7 @@ pub(crate) mod internal {
         M::Edge: HigherEdge,
         M::Tri: HigherTri,
         M::Tet: ManifoldTet,
-        for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>
+        HasTetsWalker<'a, M>: TetWalk<'a, Mesh = M>
     {
         let id = vertices.try_into().ok().unwrap();
 
