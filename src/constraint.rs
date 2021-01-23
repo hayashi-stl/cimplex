@@ -1,5 +1,5 @@
-use crate::tet::internal::Tet as TetIntr;
 use crate::mesh_3::internal::{ManifoldTet, Tet};
+use crate::tet::internal::Tet as TetIntr;
 
 /// The "manifold" constraint forces (d - 1)-simplexes
 /// to be attached to at most 1 d-simplex.

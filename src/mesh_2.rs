@@ -11,7 +11,7 @@ use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
 use crate::VecN;
 
-use internal::{HigherEdge, Tri};
+use internal::{HigherEdge, Tri, ManifoldTri};
 
 /// A combinatorial simplicial 2-complex, containing only vertices, (oriented) edges, and (oriented) triangles.
 /// Also known as an tri mesh.
@@ -35,14 +35,13 @@ pub struct ComboMesh2<V, E, F> {
 }
 crate::impl_has_vertices!(ComboMesh2<V, E, F>, HigherVertex);
 crate::impl_has_edges!(ComboMesh2<V, E, F>, HigherEdge);
-crate::impl_has_tris!(ComboMesh2<V, E, F>, Tri);
+crate::impl_has_tris_non_manifold!(ComboMesh2<V, E, F>, Tri);
 crate::impl_index_vertex!(ComboMesh2<V, E, F>);
 crate::impl_index_edge!(ComboMesh2<V, E, F>);
 crate::impl_index_tri!(ComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {}
 impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {}
-impl<V, E, F> HasTris for ComboMesh2<V, E, F> {}
 
 impl<V, E, F> Default for ComboMesh2<V, E, F> {
     fn default() -> Self {
@@ -64,6 +63,50 @@ impl<V, E, F> ComboMesh2<V, E, F> {
     }
 }
 
+/// A simplicial 2-complex optimized for manifolds with boundary.
+/// Each oriented edge can be part of at most 1 triangle.
+/// Please don't call `add_edge` on this.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+pub struct ManifoldComboMesh2<V, E, F> {
+    vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
+    edges: FnvHashMap<EdgeId, HigherEdge<E>>,
+    tris: FnvHashMap<TriId, ManifoldTri<F>>,
+    next_vertex_id: u64,
+    /// Keep separate track because edge twins may or may not exist
+    num_edges: usize,
+    num_tris: usize,
+}
+crate::impl_has_vertices!(ManifoldComboMesh2<V, E, F>, HigherVertex);
+crate::impl_has_edges!(ManifoldComboMesh2<V, E, F>, HigherEdge);
+crate::impl_has_tris_manifold!(ManifoldComboMesh2<V, E, F>, ManifoldTri);
+crate::impl_index_vertex!(ManifoldComboMesh2<V, E, F>);
+crate::impl_index_edge!(ManifoldComboMesh2<V, E, F>);
+crate::impl_index_tri!(ManifoldComboMesh2<V, E, F>);
+
+impl<V, E, F> HasVertices for ManifoldComboMesh2<V, E, F> {}
+impl<V, E, F> HasEdges for ManifoldComboMesh2<V, E, F> {}
+
+impl<V, E, F> Default for ManifoldComboMesh2<V, E, F> {
+    fn default() -> Self {
+        ManifoldComboMesh2 {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            next_vertex_id: 0,
+            num_edges: 0,
+            num_tris: 0,
+        }
+    }
+}
+
+impl<V, E, F> ManifoldComboMesh2<V, E, F> {
+    /// Creates an empty tri mesh.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// A position-containing tri mesh
 pub type Mesh2<V, E, F, D> = ComboMesh2<(VecN<D>, V), E, F>;
 
@@ -74,7 +117,7 @@ pub type Mesh22<V, E, F> = Mesh2<V, E, F, U2>;
 pub type Mesh23<V, E, F> = Mesh2<V, E, F, U3>;
 
 pub(crate) mod internal {
-    use super::ComboMesh2;
+    use super::{ComboMesh2, ManifoldComboMesh2};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
@@ -124,15 +167,17 @@ pub(crate) mod internal {
         value: Option<F>,
     }
     #[rustfmt::skip]
-    crate::impl_tri!(Tri<F>, new |_id, links, value| Tri { links, value });
+    crate::impl_non_manifold_tri!(Tri<F>, with_links |_id, links, value| Tri { links, value });
 
     /// An triangle of a manifold triangle mesh, possibly with boundary
     #[derive(Clone, Debug)]
     #[doc(hidden)]
     #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
     pub struct ManifoldTri<F> {
-        value: Option<F>,
+        value: F,
     }
+    #[rustfmt::skip]
+    crate::impl_manifold_tri!(ManifoldTri<F>, new |value| ManifoldTri { value });
 
     #[derive(Clone, Debug)]
     #[doc(hidden)]
@@ -148,9 +193,9 @@ pub(crate) mod internal {
         value: Option<F>,
     }
     #[rustfmt::skip]
-    crate::impl_tri!(
+    crate::impl_non_manifold_tri!(
         HigherTri<F>,
-        new |id, links, value| {
+        with_links |id, links, value| {
             HigherTri {
                 tet_opp: id,
                 links,
@@ -159,6 +204,7 @@ pub(crate) mod internal {
         }
     );
     crate::impl_higher_tri!(HigherTri<F>);
+
     impl<V, E, F> RemoveVertexHigher for ComboMesh2<V, E, F> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -198,11 +244,52 @@ pub(crate) mod internal {
     impl<V, E, F> ClearTrisHigher for ComboMesh2<V, E, F> {
         fn clear_tris_higher(&mut self) {}
     }
+
+    impl<V, E, F> RemoveVertexHigher for ManifoldComboMesh2<V, E, F> {
+        fn remove_vertex_higher(&mut self, vertex: VertexId) {
+            self.remove_edges(
+                self.vertex_edges_out(vertex)
+                    .chain(self.vertex_edges_in(vertex))
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    impl<V, E, F> ClearVerticesHigher for ManifoldComboMesh2<V, E, F> {
+        fn clear_vertices_higher(&mut self) {
+            self.tris.clear();
+            self.num_tris = 0;
+            self.edges.clear();
+            self.num_edges = 0;
+        }
+    }
+
+    impl<V, E, F> RemoveEdgeHigher for ManifoldComboMesh2<V, E, F> {
+        fn remove_edge_higher(&mut self, edge: EdgeId) {
+            self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+        }
+    }
+
+    impl<V, E, F> ClearEdgesHigher for ManifoldComboMesh2<V, E, F> {
+        fn clear_edges_higher(&mut self) {
+            self.tris.clear();
+            self.num_tris = 0;
+        }
+    }
+
+    impl<V, E, F> RemoveTriHigher for ManifoldComboMesh2<V, E, F> {
+        fn remove_tri_higher(&mut self, _: TriId) {}
+    }
+
+    impl<V, E, F> ClearTrisHigher for ManifoldComboMesh2<V, E, F> {
+        fn clear_tris_higher(&mut self) {}
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tri::TriWalk;
     use fnv::FnvHashSet;
     use std::convert::TryInto;
     use std::fmt::Debug;

@@ -8,7 +8,7 @@ use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
 
-use crate::tri::{HasTris, TriWalker};
+use crate::tri::{HasTris, HasTrisWalker, TriWalker, TriWalk};
 use crate::vertex::internal::HasVertices as HasVerticesIntr;
 use crate::vertex::{
     internal::{HigherVertex, Vertex},
@@ -601,12 +601,13 @@ where
         }
     }
 
-    pub fn tri_walker(self) -> Option<TriWalker<'a, M>>
+    pub fn tri_walker(self) -> Option<HasTrisWalker<'a, M>>
     where
         <M as HasEdgesIntr>::Edge: HigherEdge,
         M: HasTris,
+        for<'b> HasTrisWalker<'b, M>: TriWalk<'b, Mesh = M>,
     {
-        TriWalker::from_edge(self.mesh, self.edge)
+        HasTrisWalker::from_edge(self.mesh, self.edge)
     }
 }
 
