@@ -1,13 +1,12 @@
 //! Traits and structs related to triangles
 
-use nalgebra::{DefaultAllocator, allocator::Allocator};
+use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
 
-use crate::{edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut}, vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position, internal::Vertex}};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::internal::HasTris as HasTrisIntr;
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
@@ -15,7 +14,11 @@ use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
 use crate::{
     edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
-    tet::{HasTets, TetWalker},
+    tet::{HasTets, TetWalker, HasTetsWalker},
+};
+use crate::{
+    edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut},
+    vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 
 use internal::{ClearTrisHigher, RemoveTriHigher, Tri};
@@ -664,12 +667,13 @@ where
         EdgeWalker::new(self.mesh, self.edge)
     }
 
-    pub fn tet_walker(self) -> Option<TetWalker<'a, M>>
+    pub fn tet_walker(self) -> Option<HasTetsWalker<'a, M>>
     where
         <M as HasTrisIntr>::Tri: HigherTri,
         M: HasTets,
     {
-        TetWalker::from_edge_vertex(self.mesh, self.edge, self.opp)
+        todo!()
+        //TetWalker::from_edge_vertex(self.mesh, self.edge, self.opp)
     }
 }
 
@@ -760,8 +764,10 @@ where
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_index_tri {
-    ($name:ident<$v:ident, $e:ident, $f: ident $(, $args:ident)*>) => {
-        impl<$v, $e, $f $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*> {
+    ($name:ident<$v:ident, $e:ident, $f: ident $(, $args:ident)*> $(where $($wh:tt)*)?) => {
+        impl<$v, $e, $f $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*>
+        $(where $($wh)*)?
+        {
             type Output = $f;
 
             fn index(&self, index: [crate::vertex::VertexId; 3]) -> &Self::Output {
@@ -769,13 +775,17 @@ macro_rules! impl_index_tri {
             }
         }
 
-        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*> {
+        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 3]> for $name<$v, $e, $f $(, $args)*>
+        $(where $($wh)*)?
+        {
             fn index_mut(&mut self, index: [crate::vertex::VertexId; 3]) -> &mut Self::Output {
                 self.tri_mut(index).unwrap()
             }
         }
 
-        impl<$v, $e, $f $(, $args)*> std::ops::Index<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*> {
+        impl<$v, $e, $f $(, $args)*> std::ops::Index<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*>
+        $(where $($wh)*)?
+        {
             type Output = $f;
 
             fn index(&self, index: crate::tri::TriId) -> &Self::Output {
@@ -783,7 +793,9 @@ macro_rules! impl_index_tri {
             }
         }
 
-        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*> {
+        impl<$v, $e, $f $(, $args)*> std::ops::IndexMut<crate::tri::TriId> for $name<$v, $e, $f $(, $args)*>
+        $(where $($wh)*)?
+        {
             fn index_mut(&mut self, index: crate::tri::TriId) -> &mut Self::Output {
                 self.tri_mut(index).unwrap()
             }
@@ -877,8 +889,10 @@ pub(crate) mod internal {
     #[macro_export]
     #[doc(hidden)]
     macro_rules! impl_has_tris {
-        ($name:ident<$v:ident, $e:ident, $f:ident $(, $args:ident)*>, $tri:ident) => {
-            impl<$v, $e, $f $(, $args)*> crate::tri::internal::HasTris for $name<$v, $e, $f $(, $args)*> {
+        ($name:ident<$v:ident, $e:ident, $f:ident $(, $args:ident)*>, $tri:ident $(where $($wh:tt)*)?) => {
+            impl<$v, $e, $f $(, $args)*> crate::tri::internal::HasTris for $name<$v, $e, $f $(, $args)*>
+            $(where $($wh)*)?
+            {
                 type Tri = $tri<$f>;
 
                 fn tris_r(&self) -> &FnvHashMap<crate::tri::TriId, Self::Tri> {

@@ -1,23 +1,24 @@
 //! Traits and structs related to vertices
 
 use idmap::table::DenseEntryTable;
+use nalgebra::allocator::Allocator;
+use nalgebra::{DefaultAllocator, DimName, Point};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
-use nalgebra::{Point, DimName, DefaultAllocator};
-use nalgebra::allocator::Allocator;
 
-use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex, HasVertices as HasVerticesIntr};
+use internal::{ClearVerticesHigher, HasVertices as HasVerticesIntr, RemoveVertexHigher, Vertex};
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
 pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
-pub(crate) type HasPositionDim<P> = <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
+pub(crate) type HasPositionDim<P> =
+    <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
 pub(crate) type HasPositionPoint<P> = Point<f64, HasPositionDim<P>>;
 
 /// For values that can represent a position.
 pub trait Position
 where
-    DefaultAllocator: Allocator<f64, <Self as Position>::Dim>
+    DefaultAllocator: Allocator<f64, <Self as Position>::Dim>,
 {
     /// The number of dimensions in the position
     type Dim: DimName;
@@ -29,8 +30,8 @@ where
 /// Not a blanket implementation because
 /// I also want to implement this for tuples
 impl<D: DimName> Position for Point<f64, D>
-where 
-    DefaultAllocator: Allocator<f64, D>
+where
+    DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
 
@@ -41,7 +42,7 @@ where
 
 impl<D: DimName, V> Position for (Point<f64, D>, V)
 where
-    DefaultAllocator: Allocator<f64, D>
+    DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
 
@@ -180,8 +181,10 @@ where
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_index_vertex {
-    ($name:ident<$v:ident $(, $args:ident)*>) => {
-        impl<$v $(, $args)*> std::ops::Index<crate::vertex::VertexId> for $name<$v $(, $args)*> {
+    ($name:ident<$v:ident $(, $args:ident)*> $(where $($wh:tt)*)?) => {
+        impl<$v $(, $args)*> std::ops::Index<crate::vertex::VertexId> for $name<$v $(, $args)*>
+        $(where $($wh)*)?
+        {
             type Output = $v;
 
             fn index(&self, index: crate::vertex::VertexId) -> &Self::Output {
@@ -189,7 +192,9 @@ macro_rules! impl_index_vertex {
             }
         }
 
-        impl<$v $(, $args)*> std::ops::IndexMut<crate::vertex::VertexId> for $name<$v $(, $args)*> {
+        impl<$v $(, $args)*> std::ops::IndexMut<crate::vertex::VertexId> for $name<$v $(, $args)*>
+        $(where $($wh)*)?
+        {
             fn index_mut(&mut self, index: crate::vertex::VertexId) -> &mut Self::Output {
                 self.vertex_mut(index).unwrap()
             }
@@ -246,8 +251,10 @@ pub(crate) mod internal {
     #[macro_export]
     #[doc(hidden)]
     macro_rules! impl_has_vertices {
-        ($name:ident<$v:ident $(, $args:ident)*>, $vertex:ident) => {
-            impl<$v $(, $args)*> crate::vertex::internal::HasVertices for $name<$v $(, $args)*> {
+        ($name:ident<$v:ident $(, $args:ident)*>, $vertex:ident $(where $($wh:tt)*)?) => {
+            impl<$v $(, $args)*> crate::vertex::internal::HasVertices for $name<$v $(, $args)*>
+            $(where $($wh)*)?
+            {
                 type Vertex = $vertex<$v>;
 
                 fn vertices_r(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {

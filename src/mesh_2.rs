@@ -134,6 +134,31 @@ pub(crate) mod internal {
         value: Option<F>,
     }
 
+    #[derive(Clone, Debug)]
+    #[doc(hidden)]
+    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    pub struct HigherTri<F> {
+        /// Targets from the same edge for each of the edges,
+        /// whether the triangle actually exists or not
+        links: [Link<VertexId>; 3],
+        tet_opp: VertexId,
+        /// The triangle does not actually exist if the value is None;
+        /// it is just there for the structural purpose of
+        /// ensuring that every triangle has a twin.
+        value: Option<F>,
+    }
+    #[rustfmt::skip]
+    crate::impl_tri!(
+        HigherTri<F>,
+        new |id, links, value| {
+            HigherTri {
+                tet_opp: id,
+                links,
+                value,
+            }
+        }
+    );
+    crate::impl_higher_tri!(HigherTri<F>);
     impl<V, E, F> RemoveVertexHigher for ComboMesh2<V, E, F> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
