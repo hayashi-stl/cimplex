@@ -44,15 +44,15 @@ crate::impl_has_vertices!(ComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(ComboMesh3<V, E, F, T>, HigherEdge);
 crate::impl_has_tris!(ComboMesh3<V, E, F, T>, HigherTri);
 crate::impl_has_tets!(ComboMesh3<V, E, F, T>, Tet);
-crate::impl_index_vertex!(ComboMesh3<V, E, F, T>);
-crate::impl_index_edge!(ComboMesh3<V, E, F, T>);
-crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
-crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
+crate::impl_index_vertex!(ComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_edge!(ComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_tri!(ComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_tet!(ComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
 
-impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasVertices for ComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasEdges for ComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasTris for ComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasTets for ComboMesh3<V, E, F, T> {
     fn add_tet<TI: std::convert::TryInto<crate::tet::TetId>>(
         &mut self,
         vertices: TI,
@@ -71,7 +71,7 @@ impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
     }
 }
 
-impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> Default for ComboMesh3<V, E, F, T> {
     fn default() -> Self {
         ComboMesh3 {
             vertices: OrderedIdMap::default(),
@@ -86,7 +86,7 @@ impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
     }
 }
 
-impl<V, E, F, T> ComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> ComboMesh3<V, E, F, T> {
     /// Creates an empty tri mesh.
     pub fn new() -> Self {
         Self::default()
@@ -121,15 +121,15 @@ crate::impl_has_vertices!(ManifoldComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(ManifoldComboMesh3<V, E, F, T>, HigherEdge);
 crate::impl_has_tris!(ManifoldComboMesh3<V, E, F, T>, HigherTri);
 crate::impl_has_tets!(ManifoldComboMesh3<V, E, F, T>, ManifoldTet);
-crate::impl_index_vertex!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_edge!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_tri!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_tet!(ManifoldComboMesh3<V, E, F, T>);
+crate::impl_index_vertex!(ManifoldComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_edge!(ManifoldComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_tri!(ManifoldComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
+crate::impl_index_tet!(ManifoldComboMesh3<V, E, F, T> where V: 'static, E: 'static, F: 'static, T: 'static);
 
-impl<V, E, F, T> HasVertices for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasEdges for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTris for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTets for ManifoldComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasVertices for ManifoldComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasEdges for ManifoldComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasTris for ManifoldComboMesh3<V, E, F, T> {}
+impl<V: 'static, E: 'static, F: 'static, T: 'static> HasTets for ManifoldComboMesh3<V, E, F, T> {
     fn add_tet<TI: std::convert::TryInto<crate::tet::TetId>>(
         &mut self,
         vertices: TI,
@@ -137,8 +137,7 @@ impl<V, E, F, T> HasTets for ManifoldComboMesh3<V, E, F, T> {
         tri_value: impl Fn() -> <Self::Tri as crate::tri::internal::Tri>::F,
         edge_value: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
     ) -> Option<<Self::Tet as crate::tet::internal::Tet>::T> {
-        todo!()
-        //crate::tet::internal::add_tet_manifold(self, vertices, value, tri_value, edge_value)
+        crate::tet::internal::add_tet_manifold(self, vertices, value, tri_value, edge_value)
     }
 
     fn remove_tet_keep_tris<TI: std::convert::TryInto<crate::tet::TetId>>(
@@ -149,7 +148,7 @@ impl<V, E, F, T> HasTets for ManifoldComboMesh3<V, E, F, T> {
     }
 }
 
-impl<V, E, F, T> Default for ManifoldComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> Default for ManifoldComboMesh3<V, E, F, T> {
     fn default() -> Self {
         ManifoldComboMesh3 {
             vertices: OrderedIdMap::default(),
@@ -164,7 +163,7 @@ impl<V, E, F, T> Default for ManifoldComboMesh3<V, E, F, T> {
     }
 }
 
-impl<V, E, F, T> ManifoldComboMesh3<V, E, F, T> {
+impl<V: 'static, E: 'static, F: 'static, T: 'static> ManifoldComboMesh3<V, E, F, T> {
     /// Creates an empty tri mesh.
     pub fn new() -> Self {
         Self::default()
@@ -236,7 +235,7 @@ pub(crate) mod internal {
     #[rustfmt::skip]
     crate::impl_manifold_tet!(ManifoldTet<T>, new |value| ManifoldTet { value });
 
-    impl<V, E, F, T> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
                 self.vertex_edges_out(vertex)
@@ -246,7 +245,7 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E, F, T> ClearVerticesHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearVerticesHigher for ComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
             self.tris.clear();
             self.num_tris = 0;
@@ -255,41 +254,41 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E, F, T> RemoveEdgeHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveEdgeHigher for ComboMesh3<V, E, F, T> {
         fn remove_edge_higher(&mut self, edge: EdgeId) {
             self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
         }
     }
 
-    impl<V, E, F, T> ClearEdgesHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearEdgesHigher for ComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
             self.tris.clear();
             self.num_tris = 0;
         }
     }
 
-    impl<V, E, F, T> RemoveTriHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveTriHigher for ComboMesh3<V, E, F, T> {
         fn remove_tri_higher(&mut self, tri: TriId) {
             self.remove_tets(self.tri_tets(tri).collect::<Vec<_>>());
         }
     }
 
-    impl<V, E, F, T> ClearTrisHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearTrisHigher for ComboMesh3<V, E, F, T> {
         fn clear_tris_higher(&mut self) {
             self.tets.clear();
             self.num_tets = 0;
         }
     }
 
-    impl<V, E, F, T> RemoveTetHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveTetHigher for ComboMesh3<V, E, F, T> {
         fn remove_tet_higher(&mut self, _: TetId) {}
     }
 
-    impl<V, E, F, T> ClearTetsHigher for ComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearTetsHigher for ComboMesh3<V, E, F, T> {
         fn clear_tets_higher(&mut self) {}
     }
 
-    impl<V, E, F, T> RemoveVertexHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveVertexHigher for ManifoldComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
                 self.vertex_edges_out(vertex)
@@ -299,7 +298,7 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E, F, T> ClearVerticesHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearVerticesHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
             self.tris.clear();
             self.num_tris = 0;
@@ -308,38 +307,39 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E, F, T> RemoveEdgeHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveEdgeHigher for ManifoldComboMesh3<V, E, F, T> {
         fn remove_edge_higher(&mut self, edge: EdgeId) {
             self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
         }
     }
 
-    impl<V, E, F, T> ClearEdgesHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearEdgesHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
             self.tris.clear();
             self.num_tris = 0;
         }
     }
 
-    impl<V, E, F, T> RemoveTriHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveTriHigher for ManifoldComboMesh3<V, E, F, T> {
         fn remove_tri_higher(&mut self, tri: TriId) {
-            todo!()
-            //self.remove_tets(self.tri_tets(tri).collect::<Vec<_>>());
+            if let Some(tet) = self.tri_tet(tri) {
+                self.remove_tet(tet);
+            }
         }
     }
 
-    impl<V, E, F, T> ClearTrisHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearTrisHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_tris_higher(&mut self) {
             self.tets.clear();
             self.num_tets = 0;
         }
     }
 
-    impl<V, E, F, T> RemoveTetHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> RemoveTetHigher for ManifoldComboMesh3<V, E, F, T> {
         fn remove_tet_higher(&mut self, _: TetId) {}
     }
 
-    impl<V, E, F, T> ClearTetsHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V: 'static, E: 'static, F: 'static, T: 'static> ClearTetsHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_tets_higher(&mut self) {}
     }
 }
@@ -354,10 +354,10 @@ mod tests {
 
     #[track_caller]
     fn assert_vertices<
-        V: Clone + Debug + Eq + Hash,
-        E,
-        F,
-        T,
+        V: 'static + Clone + Debug + Eq + Hash,
+        E: 'static,
+        F: 'static,
+        T: 'static,
         I: IntoIterator<Item = (VertexId, V)>,
     >(
         mesh: &ComboMesh3<V, E, F, T>,
@@ -374,11 +374,11 @@ mod tests {
 
     #[track_caller]
     fn assert_edges<
-        V,
-        E: Clone + Debug + Eq + Hash,
+        V: 'static,
+        E: 'static + Clone + Debug + Eq + Hash,
         EI: TryInto<EdgeId>,
-        F,
-        T,
+        F: 'static,
+        T: 'static,
         I: IntoIterator<Item = (EI, E)>,
     >(
         mesh: &ComboMesh3<V, E, F, T>,
@@ -399,11 +399,11 @@ mod tests {
 
     #[track_caller]
     fn assert_tris<
-        V,
-        E,
-        F: Clone + Debug + Eq + Hash,
+        V: 'static,
+        E: 'static,
+        F: 'static + Clone + Debug + Eq + Hash,
         FI: TryInto<TriId>,
-        T,
+        T: 'static,
         I: IntoIterator<Item = (FI, F)>,
     >(
         mesh: &ComboMesh3<V, E, F, T>,
@@ -424,10 +424,10 @@ mod tests {
 
     #[track_caller]
     fn assert_tets<
-        V,
-        E,
-        F,
-        T: Clone + Debug + Eq + Hash,
+        V: 'static,
+        E: 'static,
+        F: 'static,
+        T: 'static + Clone + Debug + Eq + Hash,
         TI: TryInto<TetId>,
         I: IntoIterator<Item = (TI, T)>,
     >(
