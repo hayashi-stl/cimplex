@@ -1,13 +1,13 @@
 //! Traits and structs related to tetrahedrons
 
-use nalgebra::{allocator::Allocator, DefaultAllocator};
+use nalgebra::{DefaultAllocator, allocator::Allocator};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
-use std::{collections::hash_map, fmt::Debug};
+use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
-use typenum::{Bit, B0, B1};
 
+use crate::{edge::internal::{Edge, HasEdges as HasEdgesIntr, Link}, vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position, internal::Vertex}};
 use crate::edge::{EdgeId, HasEdges, VertexEdgesOut};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
@@ -18,12 +18,8 @@ use crate::tri::{HasTris, TriId, TriWalker};
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
-use crate::{
-    edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
-    vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
-};
 
-use internal::{ClearTetsHigher, RemoveTetHigher, Tet, NonManifoldTet, HasTets as HasTetsIntr};
+use internal::{ClearTetsHigher, RemoveTetHigher, Tet};
 
 /// An tetrahedron id is just the tetrahedrons's vertices in winding order,
 /// with the smallest two indexes first.
@@ -184,8 +180,6 @@ pub type EdgeTets<'a, M> = MapWith<EdgeId, TetId, EdgeEdgeOpps<'a, M>, fn(EdgeId
 pub type VertexTets<'a, M> =
     MapWith<VertexId, TetId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
 
-pub type HasTetsWalker<'a, M> = TetWalker<'a, M, <<M as HasTetsIntr>::Tet as Tet>::Manifold>;
-
 macro_rules! E {
     () => {
         <Self::Edge as Edge>::E
@@ -222,7 +216,7 @@ where
         self.tets_r()
             .iter()
             .filter::<TetFilterFn<Self::Tet>>(|(_, t)| t.value().is_some())
-            .map::<_, TetMapFn<Self::Tet>>(|(id, t)| (id, t.value().unwrap()))
+            .map::<_, TetMapFn<Self::Tet>>(|(id, t)| (id, t.value().as_ref().unwrap()))
     }
 
     /// Iterates mutably over the tetrahedrons of this mesh.
@@ -231,7 +225,7 @@ where
         self.tets_r_mut()
             .iter_mut()
             .filter::<TetFilterFnMut<Self::Tet>>(|(_, t)| t.value().is_some())
-            .map::<_, TetMapFnMut<Self::Tet>>(|(id, t)| (id, t.value_mut().unwrap()))
+            .map::<_, TetMapFnMut<Self::Tet>>(|(id, t)| (id, t.value_mut().as_mut().unwrap()))
     }
 
     /// Gets the value of the tetrahedron at a specific id.
@@ -240,7 +234,7 @@ where
         id.try_into()
             .ok()
             .and_then(|id| self.tets_r().get(&id))
-            .and_then(|t| t.value())
+            .and_then(|t| t.value().as_ref())
     }
 
     /// Gets the value of the tetrahedron at a specific id mutably.
@@ -249,7 +243,7 @@ where
         id.try_into()
             .ok()
             .and_then(move |id| self.tets_r_mut().get_mut(&id))
-            .and_then(|t| t.value_mut())
+            .and_then(|t| t.value_mut().as_mut())
     }
 
     /// Iterates over the opposite triangles of the tetrahedrons that a vertex is part of.
@@ -264,10 +258,7 @@ where
 
     /// Iterates over the tetrahedrons that a vertex is part of.
     /// The vertex must exist.
-    fn vertex_tets(&self, vertex: VertexId) -> VertexTets<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-    {
+    fn vertex_tets(&self, vertex: VertexId) -> VertexTets<Self> {
         self.vertex_tri_opps(vertex)
             .map_with(vertex, |vertex, opp| {
                 TetId(TetId::canonicalize([vertex, opp.0[0], opp.0[2], opp.0[1]]))
@@ -286,10 +277,7 @@ where
 
     /// Iterates over the tetrahedrons that an edge is part of.
     /// The edge must exist.
-    fn edge_tets<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTets<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-    {
+    fn edge_tets<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTets<Self> {
         let edge = edge.try_into().ok().unwrap();
         self.edge_edge_opps(edge).map_with(edge, |edge, opp| {
             TetId(TetId::canonicalize([
@@ -300,10 +288,7 @@ where
 
     /// Iterates over the opposite vertices of the tetrahedrons that a triangle is part of.
     /// The triangle must exist.
-    fn tri_vertex_opps<TI: TryInto<TriId>>(&self, tri: TI) -> TriVertexOpps<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn tri_vertex_opps<TI: TryInto<TriId>>(&self, tri: TI) -> TriVertexOpps<Self> {
         if let Some(walker) = self.tet_walker_from_tri(tri) {
             let start_opp = walker.fourth();
             TriVertexOpps {
@@ -322,10 +307,7 @@ where
 
     /// Iterates over the tetrahedrons that an triangle is part of.
     /// The triangle must exist.
-    fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self> {
         let tri = tri.try_into().ok().unwrap();
         self.tri_vertex_opps(tri).map_with(tri, |tri, opp| {
             TetId(TetId::canonicalize([tri.0[0], tri.0[1], tri.0[2], opp]))
@@ -345,7 +327,70 @@ where
         value: T!(),
         tri_value: impl Fn() -> F!(),
         edge_value: impl Fn() -> E!() + Clone,
-    ) -> Option<T!()>;
+    ) -> Option<T!()> {
+        let id = vertices.try_into().ok().unwrap();
+
+        for tri in &id.tris() {
+            if self.tri(*tri).is_none() {
+                self.add_tri(*tri, tri_value(), edge_value.clone());
+            }
+        }
+
+        // Can't use entry().or_insert() because that would cause a
+        // mutable borrow and an immutable borrow to exist at the same time
+        if let Some(tet) = self.tets_r_mut().get_mut(&id) {
+            let old = tet.value_mut().take();
+            *tet.value_mut() = Some(value);
+            if old.is_none() {
+                *self.num_tets_r_mut() += 1;
+            }
+            old
+        } else {
+            *self.num_tets_r_mut() += 1;
+
+            let mut insert_tet = |id: TetId, value: Option<T!()>| {
+                let mut opps = [Link::dummy(VertexId::dummy); 4];
+
+                for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
+                    let target = self.tris_r()[tri].tet_opp();
+
+                    let (prev, next) = if target == tri.0[0] {
+                        // First tet from tri
+                        *self.tris_r_mut().get_mut(tri).unwrap().tet_opp_mut() = *opp;
+                        (*opp, *opp)
+                    } else {
+                        let side = [tri.0[0], tri.0[1], tri.0[2], target]
+                            .try_into()
+                            .ok()
+                            .unwrap();
+                        let prev = self.tets_r()[&side].link(side, *tri).prev;
+                        let next = target;
+                        let prev_tet = id.with_opp(*tri, prev);
+                        let next_tet = id.with_opp(*tri, next);
+                        self.tets_r_mut()
+                            .get_mut(&prev_tet)
+                            .unwrap()
+                            .link_mut(prev_tet, *tri)
+                            .next = *opp;
+                        self.tets_r_mut()
+                            .get_mut(&next_tet)
+                            .unwrap()
+                            .link_mut(next_tet, *tri)
+                            .prev = *opp;
+                        (prev, next)
+                    };
+
+                    opps[i] = Link::new(prev, next);
+                }
+
+                self.tets_r_mut().insert(id, Tet::new(id.0[0], opps, value));
+            };
+
+            insert_tet(id, Some(value));
+            insert_tet(id.twin(), None);
+            None
+        }
+    }
 
     /// Extends the tetrahedron list with an iterator.
     ///
@@ -367,10 +412,7 @@ where
     /// or None if there was nothing there.
     /// Removes the edges and tris that are part of the tetrahedron if they are part of no other tetrahedrons
     /// and the tetrahedron to be removed exists.
-    fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()> {
         let id = match id.try_into() {
             Ok(id) => id,
             Err(_) => return None,
@@ -392,16 +434,75 @@ where
     /// Removes an tetrahedron from the mesh and returns the value that was there,
     /// or None if there was nothing there.
     /// Keeps the triangles that are part of the tetrahedron.
-    fn remove_tet_keep_tris<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()>;
+    fn remove_tet_keep_tris<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()> {
+        let id = match id.try_into() {
+            Ok(id) => id,
+            Err(_) => return None,
+        };
+
+        if self.tet(id).is_some() {
+            self.remove_tet_higher(id);
+        }
+
+        match self.tets_r().get(&id.twin()).map(|t| t.value().as_ref()) {
+            // Twin actually exists; just set value to None
+            Some(Some(_)) => {
+                let old = self.tets_r_mut().get_mut(&id).unwrap().value_mut().take();
+                if old.is_some() {
+                    *self.num_tets_r_mut() -= 1;
+                }
+                old
+            }
+
+            // Twin is phantom, so remove both tet and twin from map
+            Some(None) => {
+                // Twin is phantom, so this tet actually exists.
+                *self.num_tets_r_mut() -= 1;
+
+                let mut delete_tet = |id: TetId| {
+                    for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
+                        let tet = &self.tets_r()[&id];
+                        let prev = tet.links()[i].prev;
+                        let next = tet.links()[i].next;
+                        let prev_tet = id.with_opp(*tri, prev);
+                        let next_tet = id.with_opp(*tri, next);
+                        self.tets_r_mut()
+                            .get_mut(&prev_tet)
+                            .unwrap()
+                            .link_mut(prev_tet, *tri)
+                            .next = next;
+                        self.tets_r_mut()
+                            .get_mut(&next_tet)
+                            .unwrap()
+                            .link_mut(next_tet, *tri)
+                            .prev = prev;
+
+                        let source = self.tris_r_mut().get_mut(&tri).unwrap();
+                        if *opp == next {
+                            // this was the last tet from the triangle
+                            *source.tet_opp_mut() = tri.0[0];
+                        } else if *opp == source.tet_opp() {
+                            *source.tet_opp_mut() = next;
+                        }
+                    }
+
+                    self.tets_r_mut().remove(&id).and_then(|f| f.to_value())
+                };
+
+                delete_tet(id.twin());
+                delete_tet(id)
+            }
+
+            // Twin isn't in map, and neither is the tet to remove
+            None => None,
+        }
+    }
 
     /// Removes a list of tetrahedrons.
-    fn remove_tets<TI: TryInto<TetId>, I: IntoIterator<Item = TI>>(&mut self, iter: I)
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
-        for tet in iter {
-            self.remove_tet(tet);
-        }
+    fn remove_tets<TI: TryInto<TetId>, I: IntoIterator<Item = TI>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|id| {
+            self.remove_tet(id);
+        })
     }
 
     /// Removes a list of tetrahedrons.
@@ -412,10 +513,7 @@ where
     }
 
     /// Keeps only the tetrahedrons that satisfy a predicate
-    fn retain_tets<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P)
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn retain_tets<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .tets()
             .filter(|(id, f)| !predicate(**id, *f))
@@ -453,21 +551,15 @@ where
         &self,
         edge: EI,
         vertex: VertexId,
-    ) -> Option<HasTetsWalker<Self>>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
-        HasTetsWalker::<Self>::from_edge_vertex(self, edge, vertex)
+    ) -> Option<TetWalker<Self>> {
+        TetWalker::from_edge_vertex(self, edge, vertex)
     }
 
     /// Gets a tetrahedron walker that starts at the given triangle.
     /// Returns None if the triangle has no tetrahedron.
     /// Be warned that this does not preserve the order of the vertices
     /// because the triangle id is canonicalized.
-    fn tet_walker_from_tri<FI: TryInto<TriId>>(&self, tri: FI) -> Option<HasTetsWalker<Self>>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn tet_walker_from_tri<FI: TryInto<TriId>>(&self, tri: FI) -> Option<TetWalker<Self>> {
         let tri = tri.try_into().ok().unwrap();
         self.tet_walker_from_edge_vertex(tri.edges()[0], tri.0[2])
     }
@@ -478,23 +570,17 @@ where
         &self,
         edge: EI,
         opp: EJ,
-    ) -> HasTetsWalker<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
-        HasTetsWalker::<Self>::new(self, edge, opp)
+    ) -> TetWalker<Self> {
+        TetWalker::new(self, edge, opp)
     }
 
     /// Gets a tetrahedron walker that starts at the given tetrahedron.
     /// It must actually exist.
     /// Be warned that this does not preserve the order of the vertices
     /// because the tetrahedron id is canonicalized.
-    fn tet_walker_from_tet<TI: TryInto<TetId>>(&self, tet: TI) -> HasTetsWalker<Self>
-    where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
-    {
+    fn tet_walker_from_tet<TI: TryInto<TetId>>(&self, tet: TI) -> TetWalker<Self> {
         let tet = tet.try_into().ok().unwrap();
-        HasTetsWalker::<Self>::new(
+        TetWalker::new(
             self,
             EdgeId([tet.0[0], tet.0[1]]),
             EdgeId([tet.0[2], tet.0[3]]),
@@ -502,196 +588,9 @@ where
     }
 }
 
-/// Tetrahedron walker generic over whether the mesh has the "manifold" restriction
-pub trait TetWalk<'m>
-where
-    Self::Mesh: HasVertices,
-    <Self::Mesh as HasVerticesIntr>::Vertex: HigherVertex,
-    Self::Mesh: HasEdges,
-    <Self::Mesh as HasEdgesIntr>::Edge: HigherEdge,
-    Self::Mesh: HasTris,
-    <Self::Mesh as HasTrisIntr>::Tri: HigherTri,
-    Self: Sized,
-{
-    type Mesh: HasTets + ?Sized + 'm;
-    
-    #[doc(hidden)]
-    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, opp: EJ) -> Self;
-
-    #[doc(hidden)]
-    fn from_edge_vertex<EI: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        vertex: VertexId,
-    ) -> Option<Self>;
-
-    /// A walker that will not be used
-    #[doc(hidden)]
-    fn dummy(mesh: &'m Self::Mesh) -> Self {
-        Self::new(mesh, EdgeId::dummy(), EdgeId::dummy())
-    }
-
-    /// Gets the mesh the walker references
-    fn mesh(&self) -> &'m Self::Mesh;
-
-    /// Get the current vertex id,
-    /// which is the source of the current edge.
-    fn first(&self) -> VertexId {
-        self.edge().0[0]
-    }
-
-    /// Get the vertex id of the target of the current edge.
-    fn second(&self) -> VertexId {
-        self.edge().0[1]
-    }
-
-    /// Gets the current edge id
-    fn edge(&self) -> EdgeId;
-
-    #[doc(hidden)]
-    fn edge_mut(&mut self) -> &mut EdgeId;
-
-    /// Get the vertex id of the source of the current opposite edge.
-    fn third(&self) -> VertexId {
-        self.opp_edge().0[0]
-    }
-
-    /// Gets the opposite vertex of the current triangle
-    fn fourth(&self) -> VertexId {
-        self.opp_edge().0[1]
-    }
-
-    /// Gets the opposite edge of the current edge
-    fn opp_edge(&self) -> EdgeId;
-
-    #[doc(hidden)]
-    fn opp_edge_mut(&mut self) -> &mut EdgeId;
-
-    /// Gets the current triangle id
-    fn tri(&self) -> TriId {
-        TriId(TriId::canonicalize([
-            self.first(),
-            self.second(),
-            self.third(),
-        ]))
-    }
-
-    /// Gets the current list of vertices in order
-    fn vertices(&self) -> [VertexId; 4] {
-        [self.first(), self.second(), self.third(), self.fourth()]
-    }
-
-    /// Gets the current tetrahedron id
-    fn tet(&self) -> TetId {
-        TetId(TetId::canonicalize([
-            self.first(),
-            self.second(),
-            self.third(),
-            self.fourth(),
-        ]))
-    }
-
-    /// Reverse the walker's direction so its
-    /// current tetrahedron is the opposite tetrahedron without changing the opposite edge.
-    /// Returns None if the resulting tetrahedron doesn't exist.
-    fn twin(mut self) -> Option<Self> {
-        *self.edge_mut() = self.edge().twin();
-        if self.mesh().tet(self.tet()).is_some() {
-            Some(self)
-        } else {
-            None
-        }
-    }
-
-    /// Set the current tetrahedron to one that contains the twin
-    /// of the current triangle. Useful for getting the
-    /// other tetrahedron of the unoriented triangle in a manifold.
-    fn on_twin_tri(self) -> Option<Self>;
-
-    /// Sets the current edge to the next one in the same current triangle.
-    fn next_edge(mut self) -> Self {
-        let (edge, opp) = (EdgeId([self.second(), self.third()]), self.first());
-        *self.edge_mut() = edge;
-        *self.opp_edge_mut() = EdgeId([opp, self.fourth()]);
-        self
-    }
-
-    /// Sets the current edge to the previous one in the same current triangle.
-    fn prev_edge(mut self) -> Self {
-        let (edge, opp) = (EdgeId([self.third(), self.first()]), self.second());
-        *self.edge_mut() = edge;
-        *self.opp_edge_mut() = EdgeId([opp, self.fourth()]);
-        self
-    }
-
-    /// Sets the current triangle to the next one in the same tetrahedron.
-    fn next_tri(mut self) -> Self {
-        let (v0, v1, v2, v3) = if self
-            .vertices()
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, id)| **id)
-            .unwrap()
-            .0
-            % 2
-            == 0
-        {
-            (self.fourth(), self.third(), self.second(), self.first())
-        } else {
-            (self.second(), self.first(), self.fourth(), self.third())
-        };
-
-        *self.edge_mut() = EdgeId([v0, v1]);
-        *self.opp_edge_mut() = EdgeId([v2, v3]);
-        self
-    }
-
-    /// Switches the current edge and opposite edge
-    fn flip_tri(mut self) -> Self {
-        let (v0, v1, v2, v3) = (self.third(), self.fourth(), self.first(), self.second());
-        *self.edge_mut() = EdgeId([v0, v1]);
-        *self.opp_edge_mut() = EdgeId([v2, v3]);
-        self
-    }
-
-    /// Sets the current triangle to the previous one in the same tetrahedron.
-    fn prev_tri(mut self) -> Self {
-        let (v0, v1, v2, v3) = if self
-            .vertices()
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, id)| **id)
-            .unwrap()
-            .0
-            % 2
-            != 0
-        {
-            (self.fourth(), self.third(), self.second(), self.first())
-        } else {
-            (self.second(), self.first(), self.fourth(), self.third())
-        };
-
-        *self.edge_mut() = EdgeId([v0, v1]);
-        *self.opp_edge_mut() = EdgeId([v2, v3]);
-        self
-    }
-
-    /// Sets the current opposite vertex to the next one with the same triangle.
-    fn next_opp(self) -> Self;
-
-    /// Sets the current opposite vertex to the previous one with the same triangle.
-    fn prev_opp(self) -> Self;
-
-    /// Turns this into an triangle walker that starts
-    /// at the current edge and opposite vertex of the current triangle.
-    fn tri_walker(self) -> TriWalker<'m, Self::Mesh> {
-        TriWalker::new(self.mesh(), self.edge(), self.third())
-    }
-}
-
 /// A walker for navigating a simplicial complex by tetrahedron.
 #[derive(Debug)]
-pub struct TetWalker<'a, M: ?Sized, MF: Bit + Debug>
+pub struct TetWalker<'a, M: ?Sized>
 where
     M: HasVertices,
     <M as HasVerticesIntr>::Vertex: HigherVertex,
@@ -700,14 +599,13 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    <M as HasTetsIntr>::Tet: Tet<Manifold = MF>,
 {
     mesh: &'a M,
     edge: EdgeId,
     opp: EdgeId,
 }
 
-impl<'a, M: ?Sized, MF: Bit + Debug> Clone for TetWalker<'a, M, MF>
+impl<'a, M: ?Sized> Clone for TetWalker<'a, M>
 where
     M: HasVertices,
     <M as HasVerticesIntr>::Vertex: HigherVertex,
@@ -716,7 +614,6 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    <M as HasTetsIntr>::Tet: Tet<Manifold = MF>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -727,7 +624,7 @@ where
     }
 }
 
-impl<'a, M: ?Sized, MF: Bit + Debug> Copy for TetWalker<'a, M, MF>
+impl<'a, M: ?Sized> Copy for TetWalker<'a, M>
 where
     M: HasVertices,
     <M as HasVerticesIntr>::Vertex: HigherVertex,
@@ -736,11 +633,10 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    <M as HasTetsIntr>::Tet: Tet<Manifold = MF>,
 {
 }
 
-impl<'m, M: 'm + ?Sized> TetWalk<'m> for TetWalker<'m, M, B0>
+impl<'a, M: ?Sized> TetWalker<'a, M>
 where
     M: HasVertices,
     <M as HasVerticesIntr>::Vertex: HigherVertex,
@@ -749,11 +645,8 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    <M as HasTetsIntr>::Tet: NonManifoldTet,
 {
-    type Mesh = M;
-
-    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, opp: EJ) -> Self {
+    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: EJ) -> Self {
         Self {
             mesh,
             edge: edge.try_into().ok().unwrap(),
@@ -761,7 +654,11 @@ where
         }
     }
 
-    fn from_edge_vertex<EI: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, vertex: VertexId) -> Option<Self> {
+    pub(crate) fn from_edge_vertex<EI: TryInto<EdgeId>>(
+        mesh: &'a M,
+        edge: EI,
+        vertex: VertexId,
+    ) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
         let tri = [edge.0[0], edge.0[1], vertex].try_into().ok().unwrap();
         let start = match [edge.0[0], edge.0[1], vertex, mesh.tris_r()[&tri].tet_opp()].try_into() {
@@ -781,31 +678,194 @@ where
         Some(Self::new(mesh, edge, EdgeId([vertex, opp])))
     }
 
-    fn mesh(&self) -> &'m Self::Mesh {
+    /// A walker that will not be used
+    fn dummy(mesh: &'a M) -> Self {
+        Self {
+            mesh,
+            edge: EdgeId::dummy(),
+            opp: EdgeId::dummy(),
+        }
+    }
+
+    /// Get the mesh that the walker navigates
+    pub fn mesh(&self) -> &M {
         self.mesh
     }
 
-    fn edge(&self) -> EdgeId {
+    /// Get the current vertex id,
+    /// which is the source of the current edge.
+    pub fn first(&self) -> VertexId {
+        self.edge.0[0]
+    }
+
+    /// Get the vertex id of the target of the current edge.
+    pub fn second(&self) -> VertexId {
+        self.edge.0[1]
+    }
+
+    /// Gets the current edge id
+    pub fn edge(&self) -> EdgeId {
         self.edge
     }
 
-    fn edge_mut(&mut self) -> &mut EdgeId {
-        &mut self.edge
+    /// Get the vertex id of the source of the current opposite edge.
+    pub fn third(&self) -> VertexId {
+        self.opp.0[0]
     }
-    
-    fn opp_edge(&self) -> EdgeId {
+
+    /// Gets the opposite vertex of the current triangle
+    pub fn fourth(&self) -> VertexId {
+        self.opp.0[1]
+    }
+
+    /// Gets the opposite edge of the current edge
+    pub fn opp_edge(&self) -> EdgeId {
         self.opp
     }
 
-    fn opp_edge_mut(&mut self) -> &mut EdgeId {
-        &mut self.opp
+    /// Gets the current triangle id
+    pub fn tri(&self) -> TriId {
+        TriId(TriId::canonicalize([
+            self.first(),
+            self.second(),
+            self.third(),
+        ]))
     }
 
-    fn on_twin_tri(self) -> Option<Self> {
+    /// Gets the current list of vertices in order
+    pub fn vertices(&self) -> [VertexId; 4] {
+        [
+            self.first(),
+            self.second(),
+            self.third(),
+            self.fourth(),
+        ]
+    }
+
+    /// Gets the current tetrahedron id
+    pub fn tet(&self) -> TetId {
+        TetId(TetId::canonicalize([
+            self.first(),
+            self.second(),
+            self.third(),
+            self.fourth(),
+        ]))
+    }
+
+    /// Reverse the walker's direction so its
+    /// current tetrahedron is the opposite tetrahedron without changing the opposite edge.
+    /// Returns None if the resulting tetrahedron doesn't exist.
+    pub fn twin(mut self) -> Option<Self> {
+        self.edge = self.edge.twin();
+        if self.mesh.tet(self.tet()).is_some() {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    /// Set the current tetrahedron to one that contains the twin
+    /// of the current triangle. Useful for getting the
+    /// other tetrahedron of the unoriented triangle in a manifold.
+    pub fn on_twin_tri(self) -> Option<Self> {
         self.tri_walker().twin().and_then(|w| w.tet_walker())
     }
 
-    fn next_opp(mut self) -> Self {
+    /// Sets the current edge to the next one in the same current triangle.
+    pub fn next_edge(mut self) -> Self {
+        let (edge, opp) = (EdgeId([self.second(), self.third()]), self.first());
+        self.edge = edge;
+        self.opp = EdgeId([opp, self.fourth()]);
+        self
+    }
+
+    /// Sets the current edge to the previous one in the same current triangle.
+    pub fn prev_edge(mut self) -> Self {
+        let (edge, opp) = (EdgeId([self.third(), self.first()]), self.second());
+        self.edge = edge;
+        self.opp = EdgeId([opp, self.fourth()]);
+        self
+    }
+
+    /// Sets the current triangle to the next one in the same tetrahedron.
+    pub fn next_tri(mut self) -> Self {
+        let (v0, v1, v2, v3) = if self
+            .vertices()
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, id)| **id)
+            .unwrap()
+            .0
+            % 2
+            == 0
+        {
+            (
+                self.fourth(),
+                self.third(),
+                self.second(),
+                self.first(),
+            )
+        } else {
+            (
+                self.second(),
+                self.first(),
+                self.fourth(),
+                self.third(),
+            )
+        };
+
+        self.edge = EdgeId([v0, v1]);
+        self.opp = EdgeId([v2, v3]);
+        self
+    }
+
+    /// Switches the current edge and opposite edge
+    pub fn flip_tri(mut self) -> Self {
+        let (v0, v1, v2, v3) = (
+            self.third(),
+            self.fourth(),
+            self.first(),
+            self.second(),
+        );
+        self.edge = EdgeId([v0, v1]);
+        self.opp = EdgeId([v2, v3]);
+        self
+    }
+
+    /// Sets the current triangle to the previous one in the same tetrahedron.
+    pub fn prev_tri(mut self) -> Self {
+        let (v0, v1, v2, v3) = if self
+            .vertices()
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, id)| **id)
+            .unwrap()
+            .0
+            % 2
+            != 0
+        {
+            (
+                self.fourth(),
+                self.third(),
+                self.second(),
+                self.first(),
+            )
+        } else {
+            (
+                self.second(),
+                self.first(),
+                self.fourth(),
+                self.third(),
+            )
+        };
+
+        self.edge = EdgeId([v0, v1]);
+        self.opp = EdgeId([v2, v3]);
+        self
+    }
+
+    /// Sets the current opposite vertex to the next one with the same triangle.
+    pub fn next_opp(mut self) -> Self {
         while {
             let tet = self.tet();
             self.opp.0[1] = self.mesh.tets_r()[&self.tet()].link(tet, self.tri()).next;
@@ -814,13 +874,20 @@ where
         self
     }
 
-    fn prev_opp(mut self) -> Self {
+    /// Sets the current opposite vertex to the previous one with the same triangle.
+    pub fn prev_opp(mut self) -> Self {
         while {
             let tet = self.tet();
             self.opp.0[1] = self.mesh.tets_r()[&self.tet()].link(tet, self.tri()).prev;
             self.mesh.tets_r()[&self.tet()].value().is_none()
         } {}
         self
+    }
+
+    /// Turns this into an triangle walker that starts
+    /// at the current edge and opposite vertex of the current triangle.
+    pub fn tri_walker(self) -> TriWalker<'a, M> {
+        TriWalker::new(self.mesh, self.edge, self.third())
     }
 }
 
@@ -850,7 +917,6 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
 {
     type Item = TriId;
 
@@ -920,7 +986,6 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
 {
     type Item = EdgeId;
 
@@ -964,7 +1029,7 @@ where
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
 {
-    walker: HasTetsWalker<'a, M>,
+    walker: TetWalker<'a, M>,
     start_opp: VertexId,
     finished: bool,
 }
@@ -978,7 +1043,6 @@ where
     M: HasTris,
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
-    for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
 {
     type Item = VertexId;
 
@@ -999,10 +1063,8 @@ where
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_index_tet {
-    ($name:ident<$v:ident, $e:ident, $f: ident, $t: ident $(, $args:ident)*> $(where $($wh:tt)*)?) => {
-        impl<$v, $e, $f, $t $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 4]> for $name<$v, $e, $f, $t $(, $args)*>
-        $(where $($wh)*)?
-        {
+    ($name:ident<$v:ident, $e:ident, $f: ident, $t: ident $(, $args:ident)*>) => {
+        impl<$v, $e, $f, $t $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 4]> for $name<$v, $e, $f, $t $(, $args)*> {
             type Output = $t;
 
             fn index(&self, index: [crate::vertex::VertexId; 4]) -> &Self::Output {
@@ -1010,17 +1072,13 @@ macro_rules! impl_index_tet {
             }
         }
 
-        impl<$v, $e, $f, $t $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 4]> for $name<$v, $e, $f, $t $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e, $f, $t $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 4]> for $name<$v, $e, $f, $t $(, $args)*> {
             fn index_mut(&mut self, index: [crate::vertex::VertexId; 4]) -> &mut Self::Output {
                 self.tet_mut(index).unwrap()
             }
         }
 
-        impl<$v, $e, $f, $t $(, $args)*> std::ops::Index<crate::tet::TetId> for $name<$v, $e, $f, $t $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e, $f, $t $(, $args)*> std::ops::Index<crate::tet::TetId> for $name<$v, $e, $f, $t $(, $args)*> {
             type Output = $t;
 
             fn index(&self, index: crate::tet::TetId) -> &Self::Output {
@@ -1028,9 +1086,7 @@ macro_rules! impl_index_tet {
             }
         }
 
-        impl<$v, $e, $f, $t $(, $args)*> std::ops::IndexMut<crate::tet::TetId> for $name<$v, $e, $f, $t $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e, $f, $t $(, $args)*> std::ops::IndexMut<crate::tet::TetId> for $name<$v, $e, $f, $t $(, $args)*> {
             fn index_mut(&mut self, index: crate::tet::TetId) -> &mut Self::Output {
                 self.tet_mut(index).unwrap()
             }
@@ -1060,72 +1116,22 @@ where
 
 pub(crate) mod internal {
     use fnv::FnvHashMap;
-    use std::convert::TryInto;
-    use typenum::{Bit, B0, B1};
 
-    use super::{HasTetsWalker, TetId, TetWalk};
-    use crate::edge::internal::{Edge, HigherEdge, Link};
-    use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri, Tri};
+    use super::TetId;
+    use crate::edge::internal::{HigherEdge, Link};
+    use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri};
     use crate::tri::TriId;
     use crate::vertex::internal::HigherVertex;
     use crate::vertex::VertexId;
 
     #[macro_export]
     #[doc(hidden)]
-    macro_rules! impl_manifold_tet {
-        ($name:ident<$t:ident>, new |$value:ident| $new:expr) => {
+    macro_rules! impl_tet {
+        ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$t> crate::tet::internal::Tet for $name<$t> {
                 type T = $t;
-                type Manifold = typenum::B1;
 
-                fn to_value(self) -> Option<Self::T> {
-                    Some(self.value)
-                }
-
-                fn value(&self) -> Option<&Self::T> {
-                    Some(&self.value)
-                }
-
-                fn value_mut(&mut self) -> Option<&mut Self::T> {
-                    Some(&mut self.value)
-                }
-            }
-
-            impl<$t> crate::tet::internal::ManifoldTet for $name<$t> {
-                fn new($value: Self::T) -> Self {
-                    $new
-                }
-            }
-        };
-    }
-
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_non_manifold_tet {
-        ($name:ident<$t:ident>, with_links |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$t> crate::tet::internal::Tet for $name<$t> {
-                type T = $t;
-                type Manifold = typenum::B0;
-
-                fn to_value(self) -> Option<Self::T> {
-                    self.value
-                }
-
-                fn value(&self) -> Option<&Self::T> {
-                    self.value.as_ref()
-                }
-
-                fn value_mut(&mut self) -> Option<&mut Self::T> {
-                    self.value.as_mut()
-                }
-            }
-
-            impl<$t> crate::tet::internal::NonManifoldTet for $name<$t> {
-                fn option_value_mut(&mut self) -> &mut Option<Self::T> {
-                    &mut self.value
-                }
-
-                fn with_links(
+                fn new(
                     $id: crate::vertex::VertexId,
                     $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
                     $value: Option<Self::T>,
@@ -1142,6 +1148,18 @@ pub(crate) mod internal {
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     &mut self.links
                 }
+
+                fn to_value(self) -> Option<Self::T> {
+                    self.value
+                }
+
+                fn value(&self) -> &Option<Self::T> {
+                    &self.value
+                }
+
+                fn value_mut(&mut self) -> &mut Option<Self::T> {
+                    &mut self.value
+                }
             }
         };
     }
@@ -1149,10 +1167,8 @@ pub(crate) mod internal {
     #[macro_export]
     #[doc(hidden)]
     macro_rules! impl_has_tets {
-        ($name:ident<$v:ident, $e:ident, $f:ident, $t:ident $(, $args:ident)*>, $tet:ident $(where $($wh:tt)*)?) => {
-            impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*>
-            $(where $($wh)*)?
-            {
+        ($name:ident<$v:ident, $e:ident, $f:ident, $t:ident $(, $args:ident)*>, $tet:ident) => {
+            impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*> {
                 type Tet = $tet<$t>;
 
                 fn tets_r(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
@@ -1177,28 +1193,18 @@ pub(crate) mod internal {
     /// Tetrahedron storage
     pub trait Tet {
         type T;
-        type Manifold: Bit + std::fmt::Debug;
 
-        fn to_value(self) -> Option<Self::T>;
-
-        fn value(&self) -> Option<&Self::T>;
-
-        fn value_mut(&mut self) -> Option<&mut Self::T>;
-    }
-
-    pub trait ManifoldTet: Tet<Manifold = B1> {
-        fn new(value: Self::T) -> Self;
-    }
-
-    /// Tetrahedron storage
-    pub trait NonManifoldTet: Tet<Manifold = B0> {
-        fn option_value_mut(&mut self) -> &mut Option<Self::T>;
-
-        fn with_links(id: VertexId, links: [Link<VertexId>; 4], value: Option<Self::T>) -> Self;
+        fn new(id: VertexId, links: [Link<VertexId>; 4], value: Option<Self::T>) -> Self;
 
         fn links(&self) -> &[Link<VertexId>; 4];
 
         fn links_mut(&mut self) -> &mut [Link<VertexId>; 4];
+
+        fn to_value(self) -> Option<Self::T>;
+
+        fn value(&self) -> &Option<Self::T>;
+
+        fn value_mut(&mut self) -> &mut Option<Self::T>;
 
         fn link(&self, id: TetId, tri: TriId) -> &Link<VertexId> {
             &self.links()[(id.opp_index(tri) + 1) % 4]
@@ -1226,241 +1232,6 @@ pub(crate) mod internal {
         fn num_tets_r_mut(&mut self) -> &mut usize;
     }
 
-    pub(crate) fn add_tet_manifold<M: super::HasTets, TI: TryInto<TetId>>(
-        mesh: &mut M,
-        vertices: TI,
-        value: <M::Tet as Tet>::T,
-        tri_value: impl Fn() -> <M::Tri as Tri>::F,
-        edge_value: impl Fn() -> <M::Edge as Edge>::E + Clone,
-    ) -> Option<<M::Tet as Tet>::T>
-    where
-        M::Vertex: HigherVertex,
-        M::Edge: HigherEdge,
-        M::Tri: HigherTri,
-        M::Tet: ManifoldTet,
-        for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>
-    {
-        let id = vertices.try_into().ok().unwrap();
-
-        for tri in &id.tris() {
-            if mesh.tri(*tri).is_none() {
-                mesh.add_tri(*tri, tri_value(), edge_value.clone());
-            }
-        }
-
-        // Can't use entry().or_insert() because that would cause a
-        // mutable borrow and an immutable borrow to exist at the same time
-        if let Some(tet) = mesh.tets_r_mut().get_mut(&id) {
-            Some(std::mem::replace(tet.value_mut().unwrap(), value))
-        } else {
-            *mesh.num_tets_r_mut() += 1;
-
-            for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                let target = mesh.tris_r()[tri].tet_opp();
-
-                // Don't violate the restriction
-                if target != tri.0[0] {
-                    mesh.remove_tet([tri.0[0], tri.0[1], tri.0[2], target]);
-                }
-                *mesh.tris_r_mut().get_mut(tri).unwrap().tet_opp_mut() = *opp;
-            }
-
-            mesh.tets_r_mut().insert(id, ManifoldTet::new(value));
-            None
-        }
-    }
-
-
-    pub(crate) fn add_tet_non_manifold<M: super::HasTets, TI: TryInto<TetId>>(
-        mesh: &mut M,
-        vertices: TI,
-        value: <M::Tet as Tet>::T,
-        tri_value: impl Fn() -> <M::Tri as Tri>::F,
-        edge_value: impl Fn() -> <M::Edge as Edge>::E + Clone,
-    ) -> Option<<M::Tet as Tet>::T>
-    where
-        M::Vertex: HigherVertex,
-        M::Edge: HigherEdge,
-        M::Tri: HigherTri,
-        M::Tet: NonManifoldTet,
-    {
-        let id = vertices.try_into().ok().unwrap();
-
-        for tri in &id.tris() {
-            if mesh.tri(*tri).is_none() {
-                mesh.add_tri(*tri, tri_value(), edge_value.clone());
-            }
-        }
-
-        // Can't use entry().or_insert() because that would cause a
-        // mutable borrow and an immutable borrow to exist at the same time
-        if let Some(tet) = mesh.tets_r_mut().get_mut(&id) {
-            let old = tet.option_value_mut().take();
-            *tet.option_value_mut() = Some(value);
-            if old.is_none() {
-                *mesh.num_tets_r_mut() += 1;
-            }
-            old
-        } else {
-            *mesh.num_tets_r_mut() += 1;
-
-            let mut insert_tet = |id: TetId, value: Option<<M::Tet as Tet>::T>| {
-                let mut opps = [Link::dummy(VertexId::dummy); 4];
-
-                for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                    let target = mesh.tris_r()[tri].tet_opp();
-
-                    let (prev, next) = if target == tri.0[0] {
-                        // First tet from tri
-                        *mesh.tris_r_mut().get_mut(tri).unwrap().tet_opp_mut() = *opp;
-                        (*opp, *opp)
-                    } else {
-                        let side = [tri.0[0], tri.0[1], tri.0[2], target]
-                            .try_into()
-                            .ok()
-                            .unwrap();
-                        let prev = mesh.tets_r()[&side].link(side, *tri).prev;
-                        let next = target;
-                        let prev_tet = id.with_opp(*tri, prev);
-                        let next_tet = id.with_opp(*tri, next);
-                        mesh.tets_r_mut()
-                            .get_mut(&prev_tet)
-                            .unwrap()
-                            .link_mut(prev_tet, *tri)
-                            .next = *opp;
-                        mesh.tets_r_mut()
-                            .get_mut(&next_tet)
-                            .unwrap()
-                            .link_mut(next_tet, *tri)
-                            .prev = *opp;
-                        (prev, next)
-                    };
-
-                    opps[i] = Link::new(prev, next);
-                }
-
-                mesh.tets_r_mut()
-                    .insert(id, NonManifoldTet::with_links(id.0[0], opps, value));
-            };
-
-            insert_tet(id, Some(value));
-            insert_tet(id.twin(), None);
-            None
-        }
-    }
-
-    pub(crate) fn remove_tet_manifold<M: super::HasTets, TI: TryInto<TetId>>(
-        mesh: &mut M,
-        id: TI,
-    ) -> Option<<M::Tet as Tet>::T>
-    where
-        M::Vertex: HigherVertex,
-        M::Edge: HigherEdge,
-        M::Tri: HigherTri,
-        M::Tet: ManifoldTet,
-    {
-        let id = match id.try_into() {
-            Ok(id) => id,
-            Err(_) => return None,
-        };
-
-        if mesh.tet(id).is_some() {
-            mesh.remove_tet_higher(id);
-        }
-
-        match mesh.tet(id) {
-            Some(_) => {
-                *mesh.num_tets_r_mut() -= 1;
-
-                for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                    // Because of the "manifold" condition, this has to be the last tet from the triangle
-                    *mesh.tris_r_mut().get_mut(&tri).unwrap().tet_opp_mut() = tri.0[0];
-                }
-
-                mesh.tets_r_mut().remove(&id).and_then(|f| f.to_value())
-            }
-
-            None => None,
-        }
-    }
-    pub(crate) fn remove_tet_non_manifold<M: super::HasTets, TI: TryInto<TetId>>(
-        mesh: &mut M,
-        id: TI,
-    ) -> Option<<M::Tet as Tet>::T>
-    where
-        M::Vertex: HigherVertex,
-        M::Edge: HigherEdge,
-        M::Tri: HigherTri,
-        M::Tet: NonManifoldTet,
-    {
-        let id = match id.try_into() {
-            Ok(id) => id,
-            Err(_) => return None,
-        };
-
-        if mesh.tet(id).is_some() {
-            mesh.remove_tet_higher(id);
-        }
-
-        match mesh.tets_r().get(&id.twin()).map(|t| t.value()) {
-            // Twin actually exists; just set value to None
-            Some(Some(_)) => {
-                let old = mesh
-                    .tets_r_mut()
-                    .get_mut(&id)
-                    .unwrap()
-                    .option_value_mut()
-                    .take();
-                if old.is_some() {
-                    *mesh.num_tets_r_mut() -= 1;
-                }
-                old
-            }
-
-            // Twin is phantom, so remove both tet and twin from map
-            Some(None) => {
-                // Twin is phantom, so this tet actually exists.
-                *mesh.num_tets_r_mut() -= 1;
-
-                let mut delete_tet = |id: TetId| {
-                    for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                        let tet = &mesh.tets_r()[&id];
-                        let prev = tet.links()[i].prev;
-                        let next = tet.links()[i].next;
-                        let prev_tet = id.with_opp(*tri, prev);
-                        let next_tet = id.with_opp(*tri, next);
-                        mesh.tets_r_mut()
-                            .get_mut(&prev_tet)
-                            .unwrap()
-                            .link_mut(prev_tet, *tri)
-                            .next = next;
-                        mesh.tets_r_mut()
-                            .get_mut(&next_tet)
-                            .unwrap()
-                            .link_mut(next_tet, *tri)
-                            .prev = prev;
-
-                        let source = mesh.tris_r_mut().get_mut(&tri).unwrap();
-                        if *opp == next {
-                            // this was the last tet from the triangle
-                            *source.tet_opp_mut() = tri.0[0];
-                        } else if *opp == source.tet_opp() {
-                            *source.tet_opp_mut() = next;
-                        }
-                    }
-
-                    mesh.tets_r_mut().remove(&id).and_then(|f| f.to_value())
-                };
-
-                delete_tet(id.twin());
-                delete_tet(id)
-            }
-
-            // Twin isn't in map, and neither is the tet to remove
-            None => None,
-        }
-    }
-
     /// Removes higher-order simplexes that contain some tetangle
     pub trait RemoveTetHigher: HasTets
     where
@@ -1470,6 +1241,7 @@ pub(crate) mod internal {
     {
         fn remove_tet_higher(&mut self, tet: TetId);
     }
+
     /// Clears higher-order simplexes
     pub trait ClearTetsHigher: HasTets
     where

@@ -1,24 +1,18 @@
 //! Traits and structs related to edges
 
-use nalgebra::allocator::Allocator;
-use nalgebra::DefaultAllocator;
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
+use nalgebra::DefaultAllocator;
+use nalgebra::allocator::Allocator;
 
+use crate::{iter::{IteratorExt, MapWith}, vertex::HasPosition};
 use crate::tri::{HasTris, TriWalker};
-use crate::vertex::internal::HasVertices as HasVerticesIntr;
-use crate::vertex::{
-    internal::{HigherVertex, Vertex},
-    HasVertices, VertexId,
-};
 use crate::vertex::{HasPositionDim, HasPositionPoint, Position};
-use crate::{
-    iter::{IteratorExt, MapWith},
-    vertex::HasPosition,
-};
+use crate::vertex::internal::HasVertices as HasVerticesIntr;
+use crate::vertex::{internal::{HigherVertex, Vertex}, HasVertices, VertexId};
 
 use internal::HasEdges as HasEdgesIntr;
 use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
@@ -372,7 +366,7 @@ where
 ///                            twin
 ///         prev          <───────────────        next_in
 ///  @ <─────────────── @ ───────────────> @ <────────────── @
-///    ───────────────> │r  · (edge)· · · /^ ──────────────>
+///    ───────────────> │r  · (edge)· · · /^ ──────────────> 
 ///       backward      │ \ · · · · · ·  / │     forward
 ///                     │  \  · · · · · /  │        
 ///                next │   \tri_walker/   │ prev_in
@@ -682,10 +676,8 @@ where
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_index_edge {
-    ($name:ident<$v:ident, $e:ident $(, $args:ident)*> $(where $($wh:tt)*)?) => {
-        impl<$v, $e $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*>
-        $(where $($wh)*)?
-        {
+    ($name:ident<$v:ident, $e:ident $(, $args:ident)*>) => {
+        impl<$v, $e $(, $args)*> std::ops::Index<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
             type Output = $e;
 
             fn index(&self, index: [crate::vertex::VertexId; 2]) -> &Self::Output {
@@ -693,17 +685,13 @@ macro_rules! impl_index_edge {
             }
         }
 
-        impl<$v, $e $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e $(, $args)*> std::ops::IndexMut<[crate::vertex::VertexId; 2]> for $name<$v, $e $(, $args)*> {
             fn index_mut(&mut self, index: [crate::vertex::VertexId; 2]) -> &mut Self::Output {
                 self.edge_mut(index).unwrap()
             }
         }
 
-        impl<$v, $e $(, $args)*> std::ops::Index<crate::edge::EdgeId> for $name<$v, $e $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e $(, $args)*> std::ops::Index<crate::edge::EdgeId> for $name<$v, $e $(, $args)*> {
             type Output = $e;
 
             fn index(&self, index: crate::edge::EdgeId) -> &Self::Output {
@@ -711,9 +699,7 @@ macro_rules! impl_index_edge {
             }
         }
 
-        impl<$v, $e $(, $args)*> std::ops::IndexMut<crate::edge::EdgeId> for $name<$v, $e $(, $args)*>
-        $(where $($wh)*)?
-        {
+        impl<$v, $e $(, $args)*> std::ops::IndexMut<crate::edge::EdgeId> for $name<$v, $e $(, $args)*> {
             fn index_mut(&mut self, index: crate::edge::EdgeId) -> &mut Self::Output {
                 self.edge_mut(index).unwrap()
             }
@@ -736,6 +722,7 @@ where
         Some([v0, v1])
     }
 }
+
 
 pub(crate) mod internal {
     use super::EdgeId;
@@ -800,10 +787,8 @@ pub(crate) mod internal {
     #[macro_export]
     #[doc(hidden)]
     macro_rules! impl_has_edges {
-        ($name:ident<$v:ident, $e:ident $(, $args:ident)*>, $edge:ident $(where $($wh:tt)*)?) => {
-            impl<$v, $e $(, $args)*> crate::edge::internal::HasEdges for $name<$v, $e $(, $args)*>
-            $(where $($wh)*)?
-            {
+        ($name:ident<$v:ident, $e:ident $(, $args:ident)*>, $edge:ident) => {
+            impl<$v, $e $(, $args)*> crate::edge::internal::HasEdges for $name<$v, $e $(, $args)*> {
                 type Edge = $edge<$e>;
 
                 fn edges_r(&self) -> &FnvHashMap<crate::edge::EdgeId, Self::Edge> {
