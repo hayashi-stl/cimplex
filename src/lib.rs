@@ -9,7 +9,6 @@ type Vec2 = Vector2<f64>;
 type Vec3 = Vector3<f64>;
 type VecN<D> = VectorN<f64, D>;
 
-pub mod constraint;
 pub mod edge;
 mod iter;
 pub mod mesh_0;
@@ -19,6 +18,7 @@ pub mod mesh_3;
 pub mod tet;
 pub mod tri;
 pub mod vertex;
+pub mod constraint;
 
 pub use mesh_0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh_1::{ComboMesh1, Mesh1, Mesh12, Mesh13};

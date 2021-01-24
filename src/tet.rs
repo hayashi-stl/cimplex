@@ -3,9 +3,9 @@
 use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serde_")]
 use serde::{Deserialize, Serialize};
+use std::{collections::hash_map, fmt::Debug};
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
-use std::{collections::hash_map, fmt::Debug};
 use typenum::{Bit, B0, B1};
 
 use crate::edge::{EdgeId, HasEdges, VertexEdgesOut};
@@ -14,18 +14,16 @@ use crate::tri::{
     internal::{HasTris as HasTrisIntr, HigherTri, Tri},
     EdgeVertexOpps,
 };
-use crate::tri::{HasTris, TriId, HasTrisWalker, TriWalk};
+use crate::tri::{HasTris, TriId, TriWalker};
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
 use crate::{
-    edge::internal::{Edge, HasEdges as HasEdgesIntr},
+    edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
     vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 
-use internal::{
-    ClearTetsHigher, HasTets as HasTetsIntr, ManifoldTet, NonManifoldTet, RemoveTetHigher, Tet,
-};
+use internal::{ClearTetsHigher, RemoveTetHigher, Tet, NonManifoldTet, ManifoldTet, HasTets as HasTetsIntr};
 
 /// An tetrahedron id is just the tetrahedrons's vertices in winding order,
 /// with the smallest two indexes first.
@@ -269,7 +267,6 @@ where
     fn vertex_tets(&self, vertex: VertexId) -> VertexTets<Self>
     where
         for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
     {
         self.vertex_tri_opps(vertex)
             .map_with(vertex, |vertex, opp| {
@@ -279,10 +276,7 @@ where
 
     /// Iterates over the opposite edges of the tetrahedrons that an edge is part of.
     /// The edge must exist.
-    fn edge_edge_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeEdgeOpps<Self>
-    where
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
-    {
+    fn edge_edge_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeEdgeOpps<Self> {
         EdgeEdgeOpps {
             mesh: self,
             tris: self.edge_vertex_opps(edge),
@@ -295,7 +289,6 @@ where
     fn edge_tets<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTets<Self>
     where
         for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
     {
         let edge = edge.try_into().ok().unwrap();
         self.edge_edge_opps(edge).map_with(edge, |edge, opp| {
@@ -309,7 +302,7 @@ where
     /// The triangle must exist.
     fn tri_vertex_opps<TI: TryInto<TriId>>(&self, tri: TI) -> TriVertexOpps<Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         if let Some(walker) = self.tet_walker_from_tri(tri) {
             let start_opp = walker.fourth();
@@ -341,26 +334,24 @@ where
     /// The triangle must exist.
     fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let tri = tri.try_into().ok().unwrap();
         self.tri_vertex_opps(tri).map_with(tri, |tri, opp| {
             TetId(TetId::canonicalize([tri.0[0], tri.0[1], tri.0[2], opp]))
         })
     }
-
+    
     /// Iterates over the ≤1 tetrahedron that an triangle is part of because of the "manifold" condition.
     /// The triangle must exist.
     fn tri_tet<FI: TryInto<TriId>>(&self, tri: FI) -> Option<TetId>
     where
         Self::Tet: ManifoldTet,
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let tri = tri.try_into().ok().unwrap();
         let opp = self.tri_vertex_opp(tri)?;
-        Some(TetId(TetId::canonicalize([
-            tri.0[0], tri.0[1], tri.0[2], opp,
-        ])))
+        Some(TetId(TetId::canonicalize([tri.0[0], tri.0[1], tri.0[2], opp])))
     }
 
     /// Adds a tetrahedron to the mesh. Vertex order is important!
@@ -400,8 +391,7 @@ where
     /// and the tetrahedron to be removed exists.
     fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let id = match id.try_into() {
             Ok(id) => id,
@@ -429,8 +419,7 @@ where
     /// Removes a list of tetrahedrons.
     fn remove_tets<TI: TryInto<TetId>, I: IntoIterator<Item = TI>>(&mut self, iter: I)
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         for tet in iter {
             self.remove_tet(tet);
@@ -447,8 +436,7 @@ where
     /// Keeps only the tetrahedrons that satisfy a predicate
     fn retain_tets<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P)
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
-        for<'b> HasTrisWalker<'b, Self>: TriWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let to_remove = self
             .tets()
@@ -489,7 +477,7 @@ where
         vertex: VertexId,
     ) -> Option<HasTetsWalker<Self>>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         HasTetsWalker::<Self>::from_edge_vertex(self, edge, vertex)
     }
@@ -500,7 +488,7 @@ where
     /// because the triangle id is canonicalized.
     fn tet_walker_from_tri<FI: TryInto<TriId>>(&self, tri: FI) -> Option<HasTetsWalker<Self>>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let tri = tri.try_into().ok().unwrap();
         self.tet_walker_from_edge_vertex(tri.edges()[0], tri.0[2])
@@ -514,7 +502,7 @@ where
         opp: EJ,
     ) -> HasTetsWalker<Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         HasTetsWalker::<Self>::new(self, edge, opp)
     }
@@ -525,7 +513,7 @@ where
     /// because the tetrahedron id is canonicalized.
     fn tet_walker_from_tet<TI: TryInto<TetId>>(&self, tet: TI) -> HasTetsWalker<Self>
     where
-        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>,
+        for<'b> HasTetsWalker<'b, Self>: TetWalk<'b, Mesh = Self>
     {
         let tet = tet.try_into().ok().unwrap();
         HasTetsWalker::<Self>::new(
@@ -548,13 +536,9 @@ where
     Self: Sized,
 {
     type Mesh: HasTets + ?Sized + 'm;
-
+    
     #[doc(hidden)]
-    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        opp: EJ,
-    ) -> Self;
+    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, opp: EJ) -> Self;
 
     #[doc(hidden)]
     fn from_edge_vertex<EI: TryInto<EdgeId>>(
@@ -644,9 +628,7 @@ where
     /// Set the current tetrahedron to one that contains the twin
     /// of the current triangle. Useful for getting the
     /// other tetrahedron of the unoriented triangle in a manifold.
-    fn on_twin_tri(self) -> Option<Self>
-    where
-        HasTrisWalker<'m, Self::Mesh>: TriWalk<'m, Mesh = Self::Mesh>;
+    fn on_twin_tri(self) -> Option<Self>;
 
     /// Sets the current edge to the next one in the same current triangle.
     fn next_edge(mut self) -> Self {
@@ -724,11 +706,8 @@ where
 
     /// Turns this into an triangle walker that starts
     /// at the current edge and opposite vertex of the current triangle.
-    fn tri_walker(self) -> HasTrisWalker<'m, Self::Mesh>
-    where
-        HasTrisWalker<'m, Self::Mesh>: TriWalk<'m, Mesh = Self::Mesh>,
-    {
-        HasTrisWalker::new(self.mesh(), self.edge(), self.third())
+    fn tri_walker(self) -> TriWalker<'m, Self::Mesh> {
+        TriWalker::new(self.mesh(), self.edge(), self.third())
     }
 }
 
@@ -796,11 +775,7 @@ where
 {
     type Mesh = M;
 
-    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        opp: EJ,
-    ) -> Self {
+    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, opp: EJ) -> Self {
         Self {
             mesh,
             edge: edge.try_into().ok().unwrap(),
@@ -808,11 +783,7 @@ where
         }
     }
 
-    fn from_edge_vertex<EI: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        vertex: VertexId,
-    ) -> Option<Self> {
+    fn from_edge_vertex<EI: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, vertex: VertexId) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
         let tri = [edge.0[0], edge.0[1], vertex].try_into().ok().unwrap();
         let opp = mesh.tris_r()[&tri].tet_opp();
@@ -833,7 +804,7 @@ where
     fn edge_mut(&mut self) -> &mut EdgeId {
         &mut self.edge
     }
-
+    
     fn opp_edge(&self) -> EdgeId {
         self.opp
     }
@@ -842,10 +813,7 @@ where
         &mut self.opp
     }
 
-    fn on_twin_tri(self) -> Option<Self>
-    where
-        HasTrisWalker<'m, M>: TriWalk<'m, Mesh = M>,
-    {
+    fn on_twin_tri(self) -> Option<Self> {
         self.tri_walker().twin().and_then(|w| w.tet_walker())
     }
 
@@ -871,11 +839,7 @@ where
 {
     type Mesh = M;
 
-    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        opp: EJ,
-    ) -> Self {
+    fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, opp: EJ) -> Self {
         Self {
             mesh,
             edge: edge.try_into().ok().unwrap(),
@@ -883,11 +847,7 @@ where
         }
     }
 
-    fn from_edge_vertex<EI: TryInto<EdgeId>>(
-        mesh: &'m Self::Mesh,
-        edge: EI,
-        vertex: VertexId,
-    ) -> Option<Self> {
+    fn from_edge_vertex<EI: TryInto<EdgeId>>(mesh: &'m Self::Mesh, edge: EI, vertex: VertexId) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
         let tri = [edge.0[0], edge.0[1], vertex].try_into().ok().unwrap();
         let start = match [edge.0[0], edge.0[1], vertex, mesh.tris_r()[&tri].tet_opp()].try_into() {
@@ -918,7 +878,7 @@ where
     fn edge_mut(&mut self) -> &mut EdgeId {
         &mut self.edge
     }
-
+    
     fn opp_edge(&self) -> EdgeId {
         self.opp
     }
@@ -927,10 +887,7 @@ where
         &mut self.opp
     }
 
-    fn on_twin_tri(self) -> Option<Self>
-    where
-        HasTrisWalker<'m, M>: TriWalk<'m, Mesh = M>,
-    {
+    fn on_twin_tri(self) -> Option<Self> {
         self.tri_walker().twin().and_then(|w| w.tet_walker())
     }
 
@@ -980,7 +937,6 @@ where
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
     for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
-    for<'b> HasTrisWalker<'b, M>: TriWalk<'b, Mesh = M>,
 {
     type Item = TriId;
 
@@ -1051,7 +1007,6 @@ where
     <M as HasTrisIntr>::Tri: HigherTri,
     M: HasTets,
     for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
-    for<'b> HasTrisWalker<'b, M>: TriWalk<'b, Mesh = M>,
 {
     type Item = EdgeId;
 
@@ -1197,7 +1152,7 @@ pub(crate) mod internal {
     use super::{HasTetsWalker, TetId, TetWalk};
     use crate::edge::internal::{Edge, HigherEdge, Link};
     use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri, Tri};
-    use crate::tri::{TriId, TriWalk, HasTrisWalker};
+    use crate::tri::TriId;
     use crate::vertex::internal::HigherVertex;
     use crate::vertex::VertexId;
 
@@ -1279,7 +1234,7 @@ pub(crate) mod internal {
 
     #[macro_export]
     #[doc(hidden)]
-    macro_rules! impl_has_tets_manifold {
+    macro_rules! impl_has_tets {
         ($name:ident<$v:ident, $e:ident, $f:ident, $t:ident $(, $args:ident)*>, $tet:ident $(where $($wh:tt)*)?) => {
             impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*>
             $(where $($wh)*)?
@@ -1300,76 +1255,6 @@ pub(crate) mod internal {
 
                 fn num_tets_r_mut(&mut self) -> &mut usize {
                     &mut self.num_tets
-                }
-            }
-
-            impl<$v, $e, $f, $t $(, $args)*> crate::tet::HasTets for $name<$v, $e, $f, $t $(, $args)*>
-            $(where $($wh)*)?
-            {
-                fn add_tet<TI: std::convert::TryInto<TetId>>(
-                    &mut self,
-                    vertices: TI,
-                    value: <Self::Tet as crate::tet::internal::Tet>::T,
-                    tri_value: impl Fn() -> <Self::Tri as crate::tri::internal::Tri>::F,
-                    edge_value: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
-                ) -> Option<<Self::Tet as crate::tet::internal::Tet>::T> {
-                    crate::tet::internal::add_tet_manifold(self, vertices, value, tri_value, edge_value)
-                }
-
-                fn remove_tet_keep_tris<TI: std::convert::TryInto<TetId>>(
-                    &mut self,
-                    id: TI,
-                ) -> Option<<Self::Tet as crate::tet::internal::Tet>::T> {
-                    crate::tet::internal::remove_tet_manifold(self, id)
-                }
-            }
-        };
-    }
-
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_has_tets_non_manifold {
-        ($name:ident<$v:ident, $e:ident, $f:ident, $t:ident $(, $args:ident)*>, $tet:ident $(where $($wh:tt)*)?) => {
-            impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*>
-            $(where $($wh)*)?
-            {
-                type Tet = $tet<$t>;
-
-                fn tets_r(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
-                    &self.tets
-                }
-
-                fn tets_r_mut(&mut self) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
-                    &mut self.tets
-                }
-
-                fn num_tets_r(&self) -> usize {
-                    self.num_tets
-                }
-
-                fn num_tets_r_mut(&mut self) -> &mut usize {
-                    &mut self.num_tets
-                }
-            }
-
-            impl<$v, $e, $f, $t $(, $args)*> crate::tet::HasTets for $name<$v, $e, $f, $t $(, $args)*>
-            $(where $($wh)*)?
-            {
-                fn add_tet<TI: std::convert::TryInto<TetId>>(
-                    &mut self,
-                    vertices: TI,
-                    value: <Self::Tet as crate::tet::internal::Tet>::T,
-                    tri_value: impl Fn() -> <Self::Tri as crate::tri::internal::Tri>::F,
-                    edge_value: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
-                ) -> Option<<Self::Tet as crate::tet::internal::Tet>::T> {
-                    crate::tet::internal::add_tet_non_manifold(self, vertices, value, tri_value, edge_value)
-                }
-
-                fn remove_tet_keep_tris<TI: std::convert::TryInto<TetId>>(
-                    &mut self,
-                    id: TI,
-                ) -> Option<<Self::Tet as crate::tet::internal::Tet>::T> {
-                    crate::tet::internal::remove_tet_non_manifold(self, id)
                 }
             }
         };
@@ -1439,8 +1324,7 @@ pub(crate) mod internal {
         M::Edge: HigherEdge,
         M::Tri: HigherTri,
         M::Tet: ManifoldTet,
-        for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>,
-        for<'b> HasTrisWalker<'b, M>: TriWalk<'b, Mesh = M>,
+        for<'b> HasTetsWalker<'b, M>: TetWalk<'b, Mesh = M>
     {
         let id = vertices.try_into().ok().unwrap();
 
@@ -1471,6 +1355,7 @@ pub(crate) mod internal {
             None
         }
     }
+
 
     pub(crate) fn add_tet_non_manifold<M: super::HasTets, TI: TryInto<TetId>>(
         mesh: &mut M,
