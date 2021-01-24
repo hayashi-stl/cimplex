@@ -1457,7 +1457,7 @@ pub(crate) mod internal {
         } else {
             *mesh.num_tets_r_mut() += 1;
 
-            for (_i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
+            for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
                 let target = mesh.tris_r()[tri].tet_opp();
 
                 // Don't violate the restriction
@@ -1573,7 +1573,7 @@ pub(crate) mod internal {
             Some(_) => {
                 *mesh.num_tets_r_mut() -= 1;
 
-                for (_i, (tri, _opp)) in id.tris_and_opp().iter().enumerate() {
+                for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
                     // Because of the "manifold" condition, this has to be the last tet from the triangle
                     *mesh.tris_r_mut().get_mut(&tri).unwrap().tet_opp_mut() = tri.0[0];
                 }

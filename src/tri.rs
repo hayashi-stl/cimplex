@@ -15,8 +15,8 @@ use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
 use crate::{
-    edge::internal::{Edge, HasEdges as HasEdgesIntr},
-    tet::{HasTets, HasTetsWalker, TetWalk},
+    edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
+    tet::{HasTets, HasTetsWalker, TetWalker, TetWalk},
 };
 use crate::{
     edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut},
@@ -610,12 +610,12 @@ where
     }
 
     /// Sets the current opposite vertex to the next one with the same edge.
-    fn next_opp(self) -> Self {
+    fn next_opp(mut self) -> Self {
         self
     }
 
     /// Sets the current opposite vertex to the previous one with the same edge.
-    fn prev_opp(self) -> Self {
+    fn prev_opp(mut self) -> Self {
         self
     }
 }
@@ -859,7 +859,7 @@ pub(crate) mod internal {
     use std::convert::TryInto;
 
     use fnv::FnvHashMap;
-    use typenum::{Bit};
+    use typenum::{Bit, B0, B1};
 
     use super::{TriId, HasTrisWalker, TriWalk};
     use crate::edge::internal::{Edge, HasEdges as HasEdgesIntr, HigherEdge, Link};
@@ -1140,7 +1140,7 @@ pub(crate) mod internal {
         } else {
             *mesh.num_tris_r_mut() += 1;
 
-            for (_i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
+            for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
                 let target = mesh.edges_r()[edge].tri_opp();
 
                 if target != edge.0[0] {
@@ -1249,7 +1249,7 @@ pub(crate) mod internal {
             Some(_) => {
                 *mesh.num_tris_r_mut() -= 1;
 
-                for (_i, (edge, _opp)) in id.edges_and_opp().iter().enumerate() {
+                for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
                     // Because of the "manifold" condition, this has to be the last triangle from the edge
                     *mesh.edges_r_mut().get_mut(&edge).unwrap().tri_opp_mut() = edge.0[0];
                 }
