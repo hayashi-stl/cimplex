@@ -1,15 +1,12 @@
 //! Cimplex (prononuced KIM-plex) is a simplicial complex library.
 //! Assumes double floating-point precision for now at least
 
-use std::convert::TryInto;
-
 use nalgebra::{Vector1, Vector2, Vector3, VectorN};
-type Vec1 = Vector1<f64>;
-type Vec2 = Vector2<f64>;
-type Vec3 = Vector3<f64>;
+//type Vec1 = Vector1<f64>;
+//type Vec2 = Vector2<f64>;
+//type Vec3 = Vector3<f64>;
 type VecN<D> = VectorN<f64, D>;
 
-pub mod constraint;
 pub mod edge;
 mod iter;
 pub mod mesh_0;

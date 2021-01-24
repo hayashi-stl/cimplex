@@ -8,7 +8,7 @@ use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::{Filter, Map};
 
-use crate::tri::{HasTris, HasTrisWalker, TriWalker, TriWalk};
+use crate::tri::{HasTris, HasTrisWalker, TriWalk};
 use crate::vertex::internal::HasVertices as HasVerticesIntr;
 use crate::vertex::{
     internal::{HigherVertex, Vertex},
