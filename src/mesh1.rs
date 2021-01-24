@@ -1,14 +1,14 @@
 use edge::HasEdges;
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serde_")]
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{U2, U3};
 
-use crate::edge::EdgeId;
 use crate::vertex::VertexId;
 use crate::{edge, vertex::HasVertices, VecN};
+use crate::{edge::EdgeId, vertex::IdType};
 
 use internal::{Edge, HigherVertex};
 
@@ -19,13 +19,11 @@ use internal::{Edge, HigherVertex};
 /// The edge manipulation methods can either be called with an array of 2 `VertexId`s
 /// or an `EdgeId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh1<V, E> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, Edge<E>>,
-    next_vertex_id: u64,
-    /// Keep separate track because edge twins may or may not exist
-    num_edges: usize,
+    next_vertex_id: IdType,
 }
 crate::impl_has_vertices!(ComboMesh1<V, E>, HigherVertex);
 crate::impl_has_edges!(ComboMesh1<V, E>, Edge);
@@ -41,7 +39,6 @@ impl<V, E> Default for ComboMesh1<V, E> {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             next_vertex_id: 0,
-            num_edges: 0,
         }
     }
 }
@@ -54,41 +51,40 @@ impl<V, E> ComboMesh1<V, E> {
 }
 
 pub(crate) mod internal {
+    use super::ComboMesh1;
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
-    use crate::ComboMesh1;
-    #[cfg(feature = "serde_")]
+    #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
 
     //// A vertex of an edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherVertex<V> {
+        /// `source` is this vertex's id if there is no source
+        source: VertexId,
         /// `target` is this vertex's id if there is no target
         target: VertexId,
         value: V,
     }
     #[rustfmt::skip]
-    crate::impl_vertex!(HigherVertex<V>, new |id, value| HigherVertex { target: id, value });
+    crate::impl_vertex!(HigherVertex<V>, new |id, value| HigherVertex { source: id, target: id, value });
     crate::impl_higher_vertex!(HigherVertex<V>);
 
     /// An edge of an edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Edge<E> {
         /// Outgoing targets from the same vertex, whether the edge actually exists or not
-        link: Link<VertexId>,
-        /// The edge does not actually exist if the value is None;
-        /// it is just there for the structural purpose of
-        /// ensuring that every edge has a twin.
-        value: Option<E>,
+        links: [Link<VertexId>; 2],
+        value: E,
     }
     #[rustfmt::skip]
-    crate::impl_edge!(Edge<E>, new |_id, link, value| Edge { link, value });
+    crate::impl_edge!(Edge<E>, new |_id, links, value| Edge { links, value });
 
     impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
@@ -103,7 +99,6 @@ pub(crate) mod internal {
     impl<V, E> ClearVerticesHigher for ComboMesh1<V, E> {
         fn clear_vertices_higher(&mut self) {
             self.edges.clear();
-            self.num_edges = 0;
         }
     }
 
@@ -479,7 +474,7 @@ mod tests {
         let walker = walker.twin().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
 
-        let walker = walker.forward().unwrap();
+        let walker = mesh.edge_walker_from_edge([ids[1], ids[2]]);
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
 
         let walker = walker.next();
@@ -488,16 +483,16 @@ mod tests {
         let walker = walker.prev();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
 
-        let walker = walker.forward().unwrap();
+        let walker = walker.target_out().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
 
-        let walker = walker.backward().unwrap();
+        let walker = walker.source_in().unwrap();
         assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
 
         assert!(walker.twin().is_none());
 
         let walker = mesh.edge_walker_from_edge([ids[0], ids[3]]);
-        assert!(walker.backward().is_none());
+        assert!(walker.source_in().is_none());
 
         let walker = walker.next_in();
         assert_ne!(walker.first(), ids[0]);

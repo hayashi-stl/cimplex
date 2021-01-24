@@ -1,14 +1,14 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serde_")]
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{U2, U3};
 
 use crate::edge::{EdgeId, HasEdges};
-use crate::mesh_1::internal::HigherVertex;
+use crate::mesh1::internal::HigherVertex;
 use crate::tri::{HasTris, TriId};
-use crate::vertex::{HasVertices, VertexId};
+use crate::vertex::{HasVertices, IdType, VertexId};
 use crate::VecN;
 
 use internal::{HigherEdge, Tri};
@@ -23,15 +23,12 @@ use internal::{HigherEdge, Tri};
 /// The triangle manipulation methods can either be called with an array of 3 `VertexId`s
 /// or an `TriId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh2<V, E, F> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, Tri<F>>,
-    next_vertex_id: u64,
-    /// Keep separate track because edge twins may or may not exist
-    num_edges: usize,
-    num_tris: usize,
+    next_vertex_id: IdType,
 }
 crate::impl_has_vertices!(ComboMesh2<V, E, F>, HigherVertex);
 crate::impl_has_edges!(ComboMesh2<V, E, F>, HigherEdge);
@@ -51,8 +48,6 @@ impl<V, E, F> Default for ComboMesh2<V, E, F> {
             edges: FnvHashMap::default(),
             tris: FnvHashMap::default(),
             next_vertex_id: 0,
-            num_edges: 0,
-            num_tris: 0,
         }
     }
 }
@@ -81,29 +76,26 @@ pub(crate) mod internal {
     use crate::tri::{HasTris, TriId};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
-    #[cfg(feature = "serde_")]
+    #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherEdge<E> {
         /// Outgoing targets from the same vertex, whether the edge actually exists or not
-        link: Link<VertexId>,
+        links: [Link<VertexId>; 2],
         /// Some vertex opposite this edge in a triangle.
         /// This is the edge's first vertex if the edge is not part of a triangle.
         tri_opp: VertexId,
-        /// The edge does not actually exist if the value is None;
-        /// it is just there for the structural purpose of
-        /// ensuring that every edge has a twin.
-        value: Option<E>,
+        value: E,
     }
     #[rustfmt::skip]
     crate::impl_edge!(
         HigherEdge<E>,
-        new |id, link, value| {
+        new |id, links, value| {
             HigherEdge {
                 tri_opp: id,
-                link,
+                links,
                 value,
             }
         }
@@ -113,15 +105,12 @@ pub(crate) mod internal {
     /// A triangle of an tri mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Tri<F> {
         /// Targets from the same edge for each of the edges,
         /// whether the triangle actually exists or not
         links: [Link<VertexId>; 3],
-        /// The triangle does not actually exist if the value is None;
-        /// it is just there for the structural purpose of
-        /// ensuring that every triangle has a twin.
-        value: Option<F>,
+        value: F,
     }
     #[rustfmt::skip]
     crate::impl_tri!(Tri<F>, new |_id, links, value| Tri { links, value });
@@ -129,7 +118,7 @@ pub(crate) mod internal {
     /// An triangle of a manifold triangle mesh, possibly with boundary
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct ManifoldTri<F> {
         value: Option<F>,
     }
@@ -147,9 +136,7 @@ pub(crate) mod internal {
     impl<V, E, F> ClearVerticesHigher for ComboMesh2<V, E, F> {
         fn clear_vertices_higher(&mut self) {
             self.tris.clear();
-            self.num_tris = 0;
             self.edges.clear();
-            self.num_edges = 0;
         }
     }
 
@@ -162,7 +149,6 @@ pub(crate) mod internal {
     impl<V, E, F> ClearEdgesHigher for ComboMesh2<V, E, F> {
         fn clear_edges_higher(&mut self) {
             self.tris.clear();
-            self.num_tris = 0;
         }
     }
 

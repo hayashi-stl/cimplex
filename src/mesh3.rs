@@ -1,17 +1,20 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serde_")]
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{U2, U3};
 
-use crate::edge::{EdgeId, HasEdges};
-use crate::mesh_1::internal::HigherVertex;
-use crate::mesh_2::internal::HigherEdge;
+use crate::mesh1::internal::HigherVertex;
+use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
 use crate::VecN;
+use crate::{
+    edge::{EdgeId, HasEdges},
+    vertex::IdType,
+};
 
 use internal::{HigherTri, Tet};
 
@@ -28,17 +31,13 @@ use internal::{HigherTri, Tet};
 /// The tetrahedron manipulation methods can either be called with an array of 4 `VertexId`s
 /// or an `TetId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh3<V, E, F, T> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, HigherTri<F>>,
     tets: FnvHashMap<TetId, Tet<T>>,
-    next_vertex_id: u64,
-    /// Keep separate track because edge twins may or may not exist
-    num_edges: usize,
-    num_tris: usize,
-    num_tets: usize,
+    next_vertex_id: IdType,
 }
 crate::impl_has_vertices!(ComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(ComboMesh3<V, E, F, T>, HigherEdge);
@@ -62,9 +61,6 @@ impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
             tris: FnvHashMap::default(),
             tets: FnvHashMap::default(),
             next_vertex_id: 0,
-            num_edges: 0,
-            num_tris: 0,
-            num_tets: 0,
         }
     }
 }
@@ -95,21 +91,18 @@ mod internal {
     use crate::tri::{HasTris, TriId};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
-    #[cfg(feature = "serde_")]
+    #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherTri<F> {
         /// Targets from the same edge for each of the edges,
         /// whether the triangle actually exists or not
         links: [Link<VertexId>; 3],
         tet_opp: VertexId,
-        /// The triangle does not actually exist if the value is None;
-        /// it is just there for the structural purpose of
-        /// ensuring that every triangle has a twin.
-        value: Option<F>,
+        value: F,
     }
     #[rustfmt::skip]
     crate::impl_tri!(
@@ -127,18 +120,15 @@ mod internal {
     /// A tetrahedron of an tet mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
-    pub struct Tet<F> {
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+    pub struct Tet<T> {
         /// Targets from the same triangle for each of the triangle,
         /// whether the tetrahedron actually exists or not
         links: [Link<VertexId>; 4],
-        /// The tetrahedron does not actually exist if the value is None;
-        /// it is just there for the structural purpose of
-        /// ensuring that every tetrahedron has a twin.
-        value: Option<F>,
+        value: T,
     }
     #[rustfmt::skip]
-    crate::impl_tet!(Tet<F>, new |_id, links, value| Tet { links, value });
+    crate::impl_tet!(Tet<T>, new |_id, links, value| Tet { links, value });
 
     impl<V, E, F, T> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
@@ -153,9 +143,7 @@ mod internal {
     impl<V, E, F, T> ClearVerticesHigher for ComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
             self.tris.clear();
-            self.num_tris = 0;
             self.edges.clear();
-            self.num_edges = 0;
         }
     }
 
@@ -168,7 +156,6 @@ mod internal {
     impl<V, E, F, T> ClearEdgesHigher for ComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
             self.tris.clear();
-            self.num_tris = 0;
         }
     }
 
@@ -181,7 +168,6 @@ mod internal {
     impl<V, E, F, T> ClearTrisHigher for ComboMesh3<V, E, F, T> {
         fn clear_tris_higher(&mut self) {
             self.tets.clear();
-            self.num_tets = 0;
         }
     }
 
@@ -579,7 +565,7 @@ mod tests {
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
         mesh.extend_tets(tets.clone(), || 0, || 0);
-        assert_eq!(mesh.num_tris, 23);
+        assert_eq!(mesh.num_tris(), 23);
         assert_tets(&mesh, tets);
     }
 
@@ -803,7 +789,7 @@ mod tests {
         mesh.extend_tets(tets.clone(), || 0, || 0);
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
-        assert_eq!(mesh.num_tris, 20);
+        assert_eq!(mesh.num_tris(), 20);
         assert_tets(
             &mesh,
             vec![
@@ -816,7 +802,7 @@ mod tests {
         );
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
-        assert_eq!(mesh.num_tris, 16);
+        assert_eq!(mesh.num_tris(), 16);
         assert_tets(
             &mesh,
             vec![
@@ -828,7 +814,7 @@ mod tests {
         );
 
         assert_eq!(mesh.remove_tet([ids[4], ids[1], ids[3], ids[2]]), None);
-        assert_eq!(mesh.num_tris, 16);
+        assert_eq!(mesh.num_tris(), 16);
         assert_tets(
             &mesh,
             vec![
@@ -863,7 +849,7 @@ mod tests {
             mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0),
             None
         );
-        assert_eq!(mesh.num_tris, 27);
+        assert_eq!(mesh.num_tris(), 27);
         assert_tets(
             &mesh,
             vec![

@@ -1,21 +1,23 @@
 //! Traits and structs related to triangles
 
-use nalgebra::{DefaultAllocator, allocator::Allocator};
-#[cfg(feature = "serde_")]
+use nalgebra::{allocator::Allocator, DefaultAllocator};
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
-use std::iter::{Filter, Map};
+use std::iter::Map;
+use typenum::Bit;
 
-use crate::{edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut}, vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position, internal::Vertex}};
+use crate::edge::internal::{Edge, HasEdges as HasEdgesIntr, Link};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::internal::HasTris as HasTrisIntr;
 use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
 use crate::vertex::HasVertices;
 use crate::{edge::internal::HigherEdge, vertex::VertexId};
 use crate::{
-    edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
+    edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut},
     tet::{HasTets, TetWalker},
+    vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 
 use internal::{ClearTrisHigher, RemoveTriHigher, Tri};
@@ -26,7 +28,7 @@ use self::internal::HigherTri;
 /// with the smallest index first.
 /// No two vertices are allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct TriId(pub(crate) [VertexId; 3]);
 
 impl TryFrom<[VertexId; 3]> for TriId {
@@ -53,6 +55,11 @@ impl TriId {
             .0;
         v.rotate_left(min_pos);
         v
+    }
+
+    /// Conversion without checking for inequality of the vertices
+    pub(crate) fn from_valid(v: [VertexId; 3]) -> Self {
+        Self(Self::canonicalize(v))
     }
 
     /// Gets the vertices that this tri id is made of
@@ -90,6 +97,7 @@ impl TriId {
     }
 
     /// Reverses the tri so it winds the other way
+    #[allow(dead_code)]
     fn twin(self) -> Self {
         Self([self.0[0], self.0[2], self.0[1]])
     }
@@ -102,16 +110,16 @@ impl TriId {
     }
 }
 
-type TriFilterFn<'a, FT> = for<'b> fn(&'b (&'a TriId, &'a FT)) -> bool;
-type TriMapFn<'a, FT> = fn((&'a TriId, &'a FT)) -> (&'a TriId, &'a <FT as Tri>::F);
 /// Iterator over the triangles of a mesh.
-pub type Tris<'a, FT> =
-    Map<Filter<hash_map::Iter<'a, TriId, FT>, TriFilterFn<'a, FT>>, TriMapFn<'a, FT>>;
-type TriFilterFnMut<'a, FT> = for<'b> fn(&'b (&'a TriId, &'a mut FT)) -> bool;
-type TriMapFnMut<'a, FT> = fn((&'a TriId, &'a mut FT)) -> (&'a TriId, &'a mut <FT as Tri>::F);
+pub type Tris<'a, FT> = Map<
+    hash_map::Iter<'a, TriId, FT>,
+    for<'b> fn((&'b TriId, &'b FT)) -> (&'b TriId, &'b <FT as Tri>::F),
+>;
 /// Iterator over the triangles of a mesh mutably.
-pub type TrisMut<'a, FT> =
-    Map<Filter<hash_map::IterMut<'a, TriId, FT>, TriFilterFnMut<'a, FT>>, TriMapFnMut<'a, FT>>;
+pub type TrisMut<'a, FT> = Map<
+    hash_map::IterMut<'a, TriId, FT>,
+    for<'b> fn((&'b TriId, &'b mut FT)) -> (&'b TriId, &'b mut <FT as Tri>::F),
+>;
 
 /// Iterator over the triangles connected to an edge with the correct winding.
 pub type EdgeTris<'a, M> =
@@ -140,16 +148,13 @@ where
 {
     /// Gets the number of triangles.
     fn num_tris(&self) -> usize {
-        self.num_tris_r()
+        self.tris_r().len()
     }
 
     /// Iterates over the triangles of this mesh.
     /// Gives (id, value) pairs
     fn tris(&self) -> Tris<Self::Tri> {
-        self.tris_r()
-            .iter()
-            .filter::<TriFilterFn<Self::Tri>>(|(_, f)| f.value().is_some())
-            .map::<_, TriMapFn<Self::Tri>>(|(id, f)| (id, f.value().as_ref().unwrap()))
+        self.tris_r().iter().map(|(id, f)| (id, f.value()))
     }
 
     /// Iterates mutably over the triangles of this mesh.
@@ -157,8 +162,7 @@ where
     fn tris_mut(&mut self) -> TrisMut<Self::Tri> {
         self.tris_r_mut()
             .iter_mut()
-            .filter::<TriFilterFnMut<Self::Tri>>(|(_, f)| f.value().is_some())
-            .map::<_, TriMapFnMut<Self::Tri>>(|(id, f)| (id, f.value_mut().as_mut().unwrap()))
+            .map(|(id, f)| (id, f.value_mut()))
     }
 
     /// Gets the value of the triangle at a specific id.
@@ -167,7 +171,7 @@ where
         id.try_into()
             .ok()
             .and_then(|id| self.tris_r().get(&id))
-            .and_then(|f| f.value().as_ref())
+            .map(|f| f.value())
     }
 
     /// Gets the value of the triangle at a specific id mutably.
@@ -176,7 +180,7 @@ where
         id.try_into()
             .ok()
             .and_then(move |id| self.tris_r_mut().get_mut(&id))
-            .and_then(|f| f.value_mut().as_mut())
+            .map(|f| f.value_mut())
     }
 
     /// Iterates over the opposite edges of the triangles that a vertex is part of.
@@ -194,7 +198,7 @@ where
     fn vertex_tris(&self, vertex: VertexId) -> VertexTris<Self> {
         self.vertex_edge_opps(vertex)
             .map_with(vertex, |vertex, opp| {
-                TriId(TriId::canonicalize([vertex, opp.0[0], opp.0[1]]))
+                TriId::from_valid([vertex, opp.0[0], opp.0[1]])
             })
     }
 
@@ -222,7 +226,7 @@ where
     fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTris<Self> {
         let edge = edge.try_into().ok().unwrap();
         self.edge_vertex_opps(edge).map_with(edge, |edge, opp| {
-            TriId(TriId::canonicalize([edge.0[0], edge.0[1], opp]))
+            TriId::from_valid([edge.0[0], edge.0[1], opp])
         })
     }
 
@@ -250,22 +254,24 @@ where
         // Can't use entry().or_insert() because that would cause a
         // mutable borrow and an immutable borrow to exist at the same time
         if let Some(tri) = self.tris_r_mut().get_mut(&id) {
-            let old = tri.value_mut().take();
-            *tri.value_mut() = Some(value);
-            if old.is_none() {
-                *self.num_tris_r_mut() += 1;
-            }
-            old
+            Some(std::mem::replace(tri.value_mut(), value))
         } else {
-            *self.num_tris_r_mut() += 1;
+            let mut opps = [Link::dummy(VertexId::dummy); 3];
 
-            let mut insert_tri = |id: TriId, value: Option<F!()>| {
-                let mut opps = [Link::dummy(VertexId::dummy); 3];
+            for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
+                let target = self.edges_r()[edge].tri_opp();
 
-                for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
-                    let target = self.edges_r()[edge].tri_opp();
-
-                    let (prev, next) = if target == edge.0[0] {
+                let (prev, next) =
+                    if target == edge.0[0] || <<Self::Tri as Tri>::Manifold as Bit>::BOOL {
+                        if target != edge.0[0] {
+                            // "Manifold" condition requires ≤1 triangle per oriented edge!
+                            self.remove_tri_keep_edges(TriId::from_valid([
+                                edge.0[0], edge.0[1], target,
+                            ]));
+                            // Edges were attached to that triangle and should be removed
+                            self.remove_edge(EdgeId([edge.0[1], target]));
+                            self.remove_edge(EdgeId([target, edge.0[0]]));
+                        }
                         // First tri from edge
                         *self.edges_r_mut().get_mut(edge).unwrap().tri_opp_mut() = *opp;
                         (*opp, *opp)
@@ -288,14 +294,10 @@ where
                         (prev, next)
                     };
 
-                    opps[i] = Link::new(prev, next);
-                }
+                opps[i] = Link::new(prev, next);
+            }
 
-                self.tris_r_mut().insert(id, Tri::new(id.0[0], opps, value));
-            };
-
-            insert_tri(id, Some(value));
-            insert_tri(id.twin(), None);
+            self.tris_r_mut().insert(id, Tri::new(id.0[0], opps, value));
             None
         }
     }
@@ -320,10 +322,7 @@ where
     /// Removes the edges that are part of the triangle if they are part of no other triangles
     /// and the triangle to be removed exists.
     fn remove_tri<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
-        let id = match id.try_into() {
-            Ok(id) => id,
-            Err(_) => return None,
-        };
+        let id = id.try_into().ok()?;
 
         if let Some(value) = self.remove_tri_keep_edges(id) {
             for edge in &id.edges() {
@@ -342,66 +341,46 @@ where
     /// or None if there was nothing there.
     /// Keeps the edges that are part of the triangle.
     fn remove_tri_keep_edges<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
-        let id = match id.try_into() {
-            Ok(id) => id,
-            Err(_) => return None,
-        };
+        let id = id.try_into().ok()?;
 
         if self.tri(id).is_some() {
             self.remove_tri_higher(id);
-        }
 
-        match self.tris_r().get(&id.twin()).map(|f| f.value().as_ref()) {
-            // Twin actually exists; just set value to None
-            Some(Some(_)) => {
-                let old = self.tris_r_mut().get_mut(&id).unwrap().value_mut().take();
-                if old.is_some() {
-                    *self.num_tris_r_mut() -= 1;
-                }
-                old
-            }
+            for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
+                let next = if <<Self::Tri as Tri>::Manifold as Bit>::BOOL {
+                    *opp
+                } else {
+                    let tri = &self.tris_r()[&id];
+                    let prev = tri.links()[i].prev;
+                    let next = tri.links()[i].next;
+                    let prev_tri = id.with_opp(*edge, prev);
+                    let next_tri = id.with_opp(*edge, next);
+                    self.tris_r_mut()
+                        .get_mut(&prev_tri)
+                        .unwrap()
+                        .link_mut(prev_tri, *edge)
+                        .next = next;
+                    self.tris_r_mut()
+                        .get_mut(&next_tri)
+                        .unwrap()
+                        .link_mut(next_tri, *edge)
+                        .prev = prev;
 
-            // Twin is phantom, so remove both tri and twin from map
-            Some(None) => {
-                // Twin is phantom, so this tri actually exists.
-                *self.num_tris_r_mut() -= 1;
-
-                let mut delete_tri = |id: TriId| {
-                    for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
-                        let tri = &self.tris_r()[&id];
-                        let prev = tri.links()[i].prev;
-                        let next = tri.links()[i].next;
-                        let prev_tri = id.with_opp(*edge, prev);
-                        let next_tri = id.with_opp(*edge, next);
-                        self.tris_r_mut()
-                            .get_mut(&prev_tri)
-                            .unwrap()
-                            .link_mut(prev_tri, *edge)
-                            .next = next;
-                        self.tris_r_mut()
-                            .get_mut(&next_tri)
-                            .unwrap()
-                            .link_mut(next_tri, *edge)
-                            .prev = prev;
-
-                        let source = self.edges_r_mut().get_mut(&edge).unwrap();
-                        if *opp == next {
-                            // this was the last tri from the edge
-                            *source.tri_opp_mut() = edge.0[0];
-                        } else if *opp == source.tri_opp() {
-                            *source.tri_opp_mut() = next;
-                        }
-                    }
-
-                    self.tris_r_mut().remove(&id).and_then(|f| f.to_value())
+                    next
                 };
 
-                delete_tri(id.twin());
-                delete_tri(id)
+                let source = self.edges_r_mut().get_mut(&edge).unwrap();
+                if *opp == next {
+                    // this was the last tri from the edge
+                    *source.tri_opp_mut() = edge.0[0];
+                } else if *opp == source.tri_opp() {
+                    *source.tri_opp_mut() = next;
+                }
             }
 
-            // Twin isn't in map, and neither is the tri to remove
-            None => None,
+            self.tris_r_mut().remove(&id).map(|f| f.to_value())
+        } else {
+            None
         }
     }
 
@@ -443,7 +422,6 @@ where
     fn clear_tris(&mut self) {
         self.clear_tris_higher();
         self.tris_r_mut().clear();
-        *self.num_tris_r_mut() = 0;
 
         // Fix edge-target links
         for (id, edge) in self.edges_r_mut() {
@@ -537,20 +515,10 @@ where
 
     pub(crate) fn from_edge<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
-        let start = match [edge.0[0], edge.0[1], mesh.edges_r()[&edge].tri_opp()].try_into() {
-            Ok(start) => start,
-            Err(_) => return None,
-        };
-        let mut tri = start;
-        while mesh.tris_r()[&tri].value().is_none() {
-            tri = tri.with_opp(edge, mesh.tris_r()[&tri].link(tri, edge).next);
-            if tri == start {
-                return None;
-            }
-        }
-
-        let index = tri.index(edge.0[0]);
-        let (edge, opp) = tri.edges_and_opp()[index];
+        let opp = mesh.edges_r()[&edge].tri_opp();
+        let _: TriId = [edge.0[0], edge.0[1], mesh.edges_r()[&edge].tri_opp()]
+            .try_into()
+            .ok()?;
         Some(Self::new(mesh, edge, opp))
     }
 
@@ -640,21 +608,15 @@ where
 
     /// Sets the current opposite vertex to the next one with the same edge.
     pub fn next_opp(mut self) -> Self {
-        while {
-            let tri = self.tri();
-            self.opp = self.mesh.tris_r()[&self.tri()].link(tri, self.edge).next;
-            self.mesh.tris_r()[&self.tri()].value().is_none()
-        } {}
+        let tri = self.tri();
+        self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).next;
         self
     }
 
     /// Sets the current opposite vertex to the previous one with the same edge.
     pub fn prev_opp(mut self) -> Self {
-        while {
-            let tri = self.tri();
-            self.opp = self.mesh.tris_r()[&self.tri()].link(tri, self.edge).prev;
-            self.mesh.tris_r()[&self.tri()].value().is_none()
-        } {}
+        let tri = self.tri();
+        self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).prev;
         self
     }
 
@@ -811,6 +773,7 @@ where
 
 pub(crate) mod internal {
     use fnv::FnvHashMap;
+    use typenum::Bit;
 
     use super::TriId;
     use crate::edge::internal::{HasEdges as HasEdgesIntr, HigherEdge, Link};
@@ -824,17 +787,18 @@ pub(crate) mod internal {
         ($name:ident<$f:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$f> crate::tri::internal::Tri for $name<$f> {
                 type F = $f;
+                type Manifold = typenum::B0;
 
                 fn new(
                     $id: crate::vertex::VertexId,
                     $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 3],
-                    $value: Option<Self::F>,
+                    $value: Self::F,
                 ) -> Self {
                     $new
                 }
 
-                fn links(&self) -> &[crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
-                    &self.links
+                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+                    self.links
                 }
 
                 fn links_mut(
@@ -843,15 +807,15 @@ pub(crate) mod internal {
                     &mut self.links
                 }
 
-                fn to_value(self) -> Option<Self::F> {
+                fn to_value(self) -> Self::F {
                     self.value
                 }
 
-                fn value(&self) -> &Option<Self::F> {
+                fn value(&self) -> &Self::F {
                     &self.value
                 }
 
-                fn value_mut(&mut self) -> &mut Option<Self::F> {
+                fn value_mut(&mut self) -> &mut Self::F {
                     &mut self.value
                 }
             }
@@ -888,14 +852,6 @@ pub(crate) mod internal {
                 fn tris_r_mut(&mut self) -> &mut FnvHashMap<crate::tri::TriId, Self::Tri> {
                     &mut self.tris
                 }
-
-                fn num_tris_r(&self) -> usize {
-                    self.num_tris
-                }
-
-                fn num_tris_r_mut(&mut self) -> &mut usize {
-                    &mut self.num_tris
-                }
             }
         };
     }
@@ -903,24 +859,25 @@ pub(crate) mod internal {
     /// Triangle storage
     pub trait Tri {
         type F;
+        type Manifold: Bit;
 
         /// Takes the vertex id of the source, in case
         /// the triangle needs to store a dummy value for the opposite vertex
         /// of the tetrahedron.
-        fn new(id: VertexId, links: [Link<VertexId>; 3], value: Option<Self::F>) -> Self;
+        fn new(id: VertexId, links: [Link<VertexId>; 3], value: Self::F) -> Self;
 
-        fn links(&self) -> &[Link<VertexId>; 3];
+        fn links(&self) -> [Link<VertexId>; 3];
 
         fn links_mut(&mut self) -> &mut [Link<VertexId>; 3];
 
-        fn to_value(self) -> Option<Self::F>;
+        fn to_value(self) -> Self::F;
 
-        fn value(&self) -> &Option<Self::F>;
+        fn value(&self) -> &Self::F;
 
-        fn value_mut(&mut self) -> &mut Option<Self::F>;
+        fn value_mut(&mut self) -> &mut Self::F;
 
-        fn link(&self, id: TriId, edge: EdgeId) -> &Link<VertexId> {
-            &self.links()[id.index(edge.0[0])]
+        fn link(&self, id: TriId, edge: EdgeId) -> Link<VertexId> {
+            self.links()[id.index(edge.0[0])]
         }
 
         fn link_mut(&mut self, id: TriId, edge: EdgeId) -> &mut Link<VertexId> {
@@ -944,10 +901,6 @@ pub(crate) mod internal {
         fn tris_r(&self) -> &FnvHashMap<TriId, Self::Tri>;
 
         fn tris_r_mut(&mut self) -> &mut FnvHashMap<TriId, Self::Tri>;
-
-        fn num_tris_r(&self) -> usize;
-
-        fn num_tris_r_mut(&mut self) -> &mut usize;
     }
 
     /// Removes higher-order simplexes that contain some triangle

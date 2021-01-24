@@ -1,23 +1,24 @@
 //! Traits and structs related to vertices
 
 use idmap::table::DenseEntryTable;
-#[cfg(feature = "serde_")]
+use nalgebra::allocator::Allocator;
+use nalgebra::{DefaultAllocator, DimName, Point};
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
-use nalgebra::{Point, DimName, DefaultAllocator};
-use nalgebra::allocator::Allocator;
 
-use internal::{ClearVerticesHigher, RemoveVertexHigher, Vertex, HasVertices as HasVerticesIntr};
+use internal::{ClearVerticesHigher, HasVertices as HasVerticesIntr, RemoveVertexHigher, Vertex};
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
 pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
-pub(crate) type HasPositionDim<P> = <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
+pub(crate) type HasPositionDim<P> =
+    <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
 pub(crate) type HasPositionPoint<P> = Point<f64, HasPositionDim<P>>;
 
 /// For values that can represent a position.
 pub trait Position
 where
-    DefaultAllocator: Allocator<f64, <Self as Position>::Dim>
+    DefaultAllocator: Allocator<f64, <Self as Position>::Dim>,
 {
     /// The number of dimensions in the position
     type Dim: DimName;
@@ -29,8 +30,8 @@ where
 /// Not a blanket implementation because
 /// I also want to implement this for tuples
 impl<D: DimName> Position for Point<f64, D>
-where 
-    DefaultAllocator: Allocator<f64, D>
+where
+    DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
 
@@ -41,7 +42,7 @@ where
 
 impl<D: DimName, V> Position for (Point<f64, D>, V)
 where
-    DefaultAllocator: Allocator<f64, D>
+    DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
 
@@ -50,12 +51,15 @@ where
     }
 }
 
+/// The integer type used for a vertex
+pub type IdType = u32;
+
 /// An index to a vertex of a mesh.
 /// Will not be invalidated unless the vertex gets removed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
-pub struct VertexId(u64);
-crate::impl_integer_id!(VertexId);
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+pub struct VertexId(IdType);
+crate::impl_integer_id!(VertexId(IdType));
 
 impl VertexId {
     pub(crate) fn dummy() -> Self {
@@ -198,7 +202,7 @@ macro_rules! impl_index_vertex {
 }
 
 pub(crate) mod internal {
-    use super::VertexId;
+    use super::{IdType, VertexId};
     use idmap::OrderedIdMap;
 
     #[macro_export]
@@ -232,6 +236,14 @@ pub(crate) mod internal {
     macro_rules! impl_higher_vertex {
         ($name:ident<$v:ident>) => {
             impl<$v> crate::vertex::internal::HigherVertex for $name<$v> {
+                fn source(&self) -> VertexId {
+                    self.source
+                }
+
+                fn source_mut(&mut self) -> &mut crate::vertex::VertexId {
+                    &mut self.source
+                }
+
                 fn target(&self) -> VertexId {
                     self.target
                 }
@@ -258,11 +270,11 @@ pub(crate) mod internal {
                     &mut self.vertices
                 }
 
-                fn next_vertex_id(&self) -> u64 {
+                fn next_vertex_id(&self) -> crate::vertex::IdType {
                     self.next_vertex_id
                 }
 
-                fn next_vertex_id_mut(&mut self) -> &mut u64 {
+                fn next_vertex_id_mut(&mut self) -> &mut crate::vertex::IdType {
                     &mut self.next_vertex_id
                 }
             }
@@ -284,6 +296,10 @@ pub(crate) mod internal {
 
     /// Extra storage for a vertex in a mesh that contains edges
     pub trait HigherVertex: Vertex {
+        fn source(&self) -> VertexId;
+
+        fn source_mut(&mut self) -> &mut VertexId;
+
         fn target(&self) -> VertexId;
 
         fn target_mut(&mut self) -> &mut VertexId;
@@ -296,9 +312,9 @@ pub(crate) mod internal {
 
         fn vertices_r_mut(&mut self) -> &mut OrderedIdMap<VertexId, Self::Vertex>;
 
-        fn next_vertex_id(&self) -> u64;
+        fn next_vertex_id(&self) -> IdType;
 
-        fn next_vertex_id_mut(&mut self) -> &mut u64;
+        fn next_vertex_id_mut(&mut self) -> &mut IdType;
     }
 
     /// Removes higher-order simplexes that contain some vertex

@@ -1,18 +1,26 @@
 //! Traits and structs related to edges
 
-#[cfg(feature = "serde_")]
+use nalgebra::allocator::Allocator;
+use nalgebra::DefaultAllocator;
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
-use std::iter::{Filter, Map};
-use nalgebra::DefaultAllocator;
-use nalgebra::allocator::Allocator;
+use std::iter::Map;
+use typenum::Bit;
 
-use crate::{iter::{IteratorExt, MapWith}, vertex::HasPosition};
-use crate::tri::{HasTris, TriWalker};
-use crate::vertex::{HasPositionDim, HasPositionPoint, Position};
+use crate::{
+    iter::{IteratorExt, MapWith},
+    tri::{HasTris, TriWalker},
+    vertex::HasPosition,
+};
+//use crate::tri::{HasTris, TriWalker};
 use crate::vertex::internal::HasVertices as HasVerticesIntr;
-use crate::vertex::{internal::{HigherVertex, Vertex}, HasVertices, VertexId};
+use crate::vertex::{
+    internal::{HigherVertex, Vertex},
+    HasVertices, VertexId,
+};
+use crate::vertex::{HasPositionDim, HasPositionPoint, Position};
 
 use internal::HasEdges as HasEdgesIntr;
 use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
@@ -20,7 +28,7 @@ use internal::{ClearEdgesHigher, Edge, HigherEdge, Link, RemoveEdgeHigher};
 /// An edge id is just the edge's vertices in order.
 /// The vertices are not allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct EdgeId(pub(crate) [VertexId; 2]);
 
 impl TryFrom<[VertexId; 2]> for EdgeId {
@@ -50,6 +58,13 @@ impl EdgeId {
         Self([self.0[1], self.0[0]])
     }
 
+    /// Sets the source. Assumes it doesn't equal the target.
+    fn with_source(mut self, vertex: VertexId) -> Self {
+        self.0[0] = vertex;
+        debug_assert_ne!(self.0[0], self.0[1]);
+        self
+    }
+
     /// Sets the target. Assumes it doesn't equal the source.
     fn with_target(mut self, vertex: VertexId) -> Self {
         self.0[1] = vertex;
@@ -58,16 +73,16 @@ impl EdgeId {
     }
 }
 
-type EdgeFilterFn<'a, ET> = for<'b> fn(&'b (&'a EdgeId, &'a ET)) -> bool;
-type EdgeMapFn<'a, ET> = fn((&'a EdgeId, &'a ET)) -> (&'a EdgeId, &'a <ET as Edge>::E);
 /// Iterator over the edges of a mesh.
-pub type Edges<'a, ET> =
-    Map<Filter<hash_map::Iter<'a, EdgeId, ET>, EdgeFilterFn<'a, ET>>, EdgeMapFn<'a, ET>>;
-type EdgeFilterFnMut<'a, ET> = for<'b> fn(&'b (&'a EdgeId, &'a mut ET)) -> bool;
-type EdgeMapFnMut<'a, ET> = fn((&'a EdgeId, &'a mut ET)) -> (&'a EdgeId, &'a mut <ET as Edge>::E);
+pub type Edges<'a, ET> = Map<
+    hash_map::Iter<'a, EdgeId, ET>,
+    for<'b> fn((&'b EdgeId, &'b ET)) -> (&'b EdgeId, &'b <ET as Edge>::E),
+>;
 /// Iterator over the edges of a mesh mutably.
-pub type EdgesMut<'a, ET> =
-    Map<Filter<hash_map::IterMut<'a, EdgeId, ET>, EdgeFilterFnMut<'a, ET>>, EdgeMapFnMut<'a, ET>>;
+pub type EdgesMut<'a, ET> = Map<
+    hash_map::IterMut<'a, EdgeId, ET>,
+    for<'b> fn((&'b EdgeId, &'b mut ET)) -> (&'b EdgeId, &'b mut <ET as Edge>::E),
+>;
 
 /// Iterator over the edges pointing out from a vertex.
 pub type VertexEdgesOut<'a, M> =
@@ -89,16 +104,13 @@ where
 {
     /// Gets the number of edges.
     fn num_edges(&self) -> usize {
-        self.num_edges_r()
+        self.edges_r().len()
     }
 
     /// Iterates over the edges of this mesh.
     /// Gives (id, value) pairs
     fn edges(&self) -> Edges<Self::Edge> {
-        self.edges_r()
-            .iter()
-            .filter::<EdgeFilterFn<Self::Edge>>(|(_, e)| e.value().is_some())
-            .map::<_, EdgeMapFn<Self::Edge>>(|(id, e)| (id, e.value().as_ref().unwrap()))
+        self.edges_r().iter().map(|(id, e)| (id, e.value()))
     }
 
     /// Iterates mutably over the edges of this mesh.
@@ -106,8 +118,7 @@ where
     fn edges_mut(&mut self) -> EdgesMut<Self::Edge> {
         self.edges_r_mut()
             .iter_mut()
-            .filter::<EdgeFilterFnMut<Self::Edge>>(|(_, e)| e.value().is_some())
-            .map::<_, EdgeMapFnMut<Self::Edge>>(|(id, e)| (id, e.value_mut().as_mut().unwrap()))
+            .map(|(id, e)| (id, e.value_mut()))
     }
 
     /// Gets the value of the edge at a specific id.
@@ -116,7 +127,7 @@ where
         id.try_into()
             .ok()
             .and_then(|id| self.edges_r().get(&id))
-            .and_then(|e| e.value().as_ref())
+            .map(|e| e.value())
     }
 
     /// Gets the value of the edge at a specific id mutably.
@@ -125,7 +136,7 @@ where
         id.try_into()
             .ok()
             .and_then(move |id| self.edges_r_mut().get_mut(&id))
-            .and_then(|e| e.value_mut().as_mut())
+            .map(|e| e.value_mut())
     }
 
     /// Iterates over the targets of the outgoing edges of a vertex.
@@ -157,9 +168,7 @@ where
     /// Iterates over the sources of the incoming edges of a vertex.
     /// The vertex must exist.
     fn vertex_sources(&self, vertex: VertexId) -> VertexSources<Self> {
-        if let Some(walker) =
-            EdgeWalker::from_vertex_less_checked(self, vertex).and_then(|w| w.backward())
-        {
+        if let Some(walker) = EdgeWalker::from_target(self, vertex) {
             let start_source = walker.first();
             VertexSources {
                 walker,
@@ -194,46 +203,74 @@ where
         // Can't use entry().or_insert() because that would cause a
         // mutable borrow and an immutable borrow to exist at the same time
         if let Some(edge) = self.edges_r_mut().get_mut(&id) {
-            let old = edge.value_mut().take();
-            *edge.value_mut() = Some(value);
-            if old.is_none() {
-                *self.num_edges_r_mut() += 1;
-            }
-            old
+            Some(std::mem::replace(edge.value_mut(), value))
         } else {
-            *self.num_edges_r_mut() += 1;
+            let target = self.vertices_r()[id.0[0]].target();
 
-            let mut insert_edge = |id: EdgeId, value: Option<E!()>| {
-                let target = self.vertices_r()[id.0[0]].target();
-
-                let (prev, next) = if target == id.0[0] {
+            let (prev_target, next_target) =
+                if target == id.0[0] || <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+                    if target != id.0[0] {
+                        self.remove_edge(EdgeId([id.0[0], target]));
+                    }
                     // First edge from vertex
                     *self.vertices_r_mut()[id.0[0]].target_mut() = id.0[1];
                     (id.0[1], id.0[1])
                 } else {
-                    let prev = self.edges_r()[&[id.0[0], target].try_into().ok().unwrap()]
-                        .link()
-                        .prev;
+                    let prev =
+                        self.edges_r()[&[id.0[0], target].try_into().ok().unwrap()].links()[0].prev;
                     let next = target;
                     self.edges_r_mut()
                         .get_mut(&id.with_target(prev))
                         .unwrap()
-                        .link_mut()
+                        .links_mut()[0]
                         .next = id.0[1];
                     self.edges_r_mut()
                         .get_mut(&id.with_target(next))
                         .unwrap()
-                        .link_mut()
+                        .links_mut()[0]
                         .prev = id.0[1];
                     (prev, next)
                 };
 
-                self.edges_r_mut()
-                    .insert(id, Edge::new(id.0[0], Link::new(prev, next), value));
-            };
+            let source = self.vertices_r()[id.0[1]].source();
 
-            insert_edge(id, Some(value));
-            insert_edge(id.twin(), None);
+            let (prev_source, next_source) =
+                if source == id.0[1] || <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+                    if source != id.0[1] {
+                        self.remove_edge([source, id.0[1]]);
+                    }
+                    // First edge to vertex
+                    *self.vertices_r_mut()[id.0[1]].source_mut() = id.0[0];
+                    (id.0[0], id.0[0])
+                } else {
+                    let prev =
+                        self.edges_r()[&[source, id.0[1]].try_into().ok().unwrap()].links()[1].prev;
+                    let next = source;
+                    self.edges_r_mut()
+                        .get_mut(&id.with_source(prev))
+                        .unwrap()
+                        .links_mut()[1]
+                        .next = id.0[0];
+                    self.edges_r_mut()
+                        .get_mut(&id.with_source(next))
+                        .unwrap()
+                        .links_mut()[1]
+                        .prev = id.0[0];
+                    (prev, next)
+                };
+
+            self.edges_r_mut().insert(
+                id,
+                Edge::new(
+                    id.0[0],
+                    [
+                        Link::new(prev_target, next_target),
+                        Link::new(prev_source, next_source),
+                    ],
+                    value,
+                ),
+            );
+
             None
         }
     }
@@ -252,62 +289,65 @@ where
     /// Removes an edge from the mesh and returns the value that was there,
     /// or None if there was nothing there
     fn remove_edge<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<E!()> {
-        let id = match id.try_into() {
-            Ok(id) => id,
-            Err(_) => return None,
-        };
+        let id = id.try_into().ok()?;
 
         if self.edge(id).is_some() {
             self.remove_edge_higher(id);
-        }
 
-        match self.edges_r().get(&id.twin()).map(|e| e.value().as_ref()) {
-            // Twin actually exists; just set value to None
-            Some(Some(_)) => {
-                let old = self.edges_r_mut().get_mut(&id).unwrap().value_mut().take();
-                if old.is_some() {
-                    *self.num_edges_r_mut() -= 1;
-                }
-                old
+            let (next_source, next_target) = if <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+                (id.0[0], id.0[1])
+            } else {
+                let edge = &self.edges_r()[&id];
+                let prev = edge.links()[0].prev;
+                let next = edge.links()[0].next;
+                self.edges_r_mut()
+                    .get_mut(&id.with_target(prev))
+                    .unwrap()
+                    .links_mut()[0]
+                    .next = next;
+                self.edges_r_mut()
+                    .get_mut(&id.with_target(next))
+                    .unwrap()
+                    .links_mut()[0]
+                    .prev = prev;
+                let next_target = next;
+
+                let edge = &self.edges_r()[&id];
+                let prev = edge.links()[1].prev;
+                let next = edge.links()[1].next;
+                self.edges_r_mut()
+                    .get_mut(&id.with_source(prev))
+                    .unwrap()
+                    .links_mut()[1]
+                    .next = next;
+                self.edges_r_mut()
+                    .get_mut(&id.with_source(next))
+                    .unwrap()
+                    .links_mut()[1]
+                    .prev = prev;
+
+                (next, next_target)
+            };
+
+            let source = &mut self.vertices_r_mut()[id.0[0]];
+            if id.0[1] == next_target {
+                // this was the last edge from the vertex
+                *source.target_mut() = id.0[0];
+            } else if id.0[1] == source.target() {
+                *source.target_mut() = next_target;
             }
 
-            // Twin is phantom, so remove both edge and twin from map
-            Some(None) => {
-                // Twin is phantom, so this edge actually exists.
-                *self.num_edges_r_mut() -= 1;
-
-                let mut delete_edge = |id: EdgeId| {
-                    let edge = &self.edges_r()[&id];
-                    let prev = edge.link().prev;
-                    let next = edge.link().next;
-                    self.edges_r_mut()
-                        .get_mut(&id.with_target(prev))
-                        .unwrap()
-                        .link_mut()
-                        .next = next;
-                    self.edges_r_mut()
-                        .get_mut(&id.with_target(next))
-                        .unwrap()
-                        .link_mut()
-                        .prev = prev;
-
-                    let source = &mut self.vertices_r_mut()[id.0[0]];
-                    if id.0[1] == next {
-                        // this was the last edge from the vertex
-                        *source.target_mut() = id.0[0];
-                    } else if id.0[1] == source.target() {
-                        *source.target_mut() = next;
-                    }
-
-                    self.edges_r_mut().remove(&id).and_then(|e| e.to_value())
-                };
-
-                delete_edge(id.twin());
-                delete_edge(id)
+            let target = &mut self.vertices_r_mut()[id.0[1]];
+            if id.0[0] == next_source {
+                // this was the last edge from the vertex
+                *target.source_mut() = id.0[1];
+            } else if id.0[0] == target.source() {
+                *target.source_mut() = next_source;
             }
 
-            // Twin isn't in map, and neither is the edge to remove
-            None => None,
+            self.edges_r_mut().remove(&id).map(|e| e.to_value())
+        } else {
+            None
         }
     }
 
@@ -332,11 +372,11 @@ where
     fn clear_edges(&mut self) {
         self.clear_edges_higher();
         self.edges_r_mut().clear();
-        *self.num_edges_r_mut() = 0;
 
         // Fix vertex-target links
         for (id, vertex) in self.vertices_r_mut() {
             *vertex.target_mut() = *id;
+            *vertex.source_mut() = *id;
         }
     }
 
@@ -366,7 +406,7 @@ where
 ///                            twin
 ///         prev          <───────────────        next_in
 ///  @ <─────────────── @ ───────────────> @ <────────────── @
-///    ───────────────> │r  · (edge)· · · /^ ──────────────> 
+///    ───────────────> │r  · (edge)· · · /^ ──────────────>
 ///       backward      │ \ · · · · · ·  / │     forward
 ///                     │  \  · · · · · /  │        
 ///                next │   \tri_walker/   │ prev_in
@@ -425,26 +465,18 @@ where
         }
     }
 
-    /// Doesn't check that the starting edge actually exists
-    fn from_vertex_less_checked(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        ([vertex, mesh.vertices_r()[vertex].target()].try_into().ok() as Option<EdgeId>)
-            .map(|edge| Self::new(mesh, edge))
+    fn from_vertex(mesh: &'a M, vertex: VertexId) -> Option<Self> {
+        match EdgeId::try_from([vertex, mesh.vertices_r()[vertex].target()]) {
+            Ok(edge) => Some(Self::new(mesh, edge)),
+            Err(_) => None,
+        }
     }
 
-    fn from_vertex(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        let start = match [vertex, mesh.vertices_r()[vertex].target()].try_into() {
-            Ok(start) => start,
-            Err(_) => return None,
-        };
-        let mut edge = start;
-        while mesh.edges_r()[&edge].value().is_none() {
-            edge = edge.with_target(mesh.edges_r()[&edge].link().next);
-            if edge == start {
-                return None;
-            }
+    fn from_target(mesh: &'a M, vertex: VertexId) -> Option<Self> {
+        match EdgeId::try_from([mesh.vertices_r()[vertex].source(), vertex]) {
+            Ok(edge) => Some(Self::new(mesh, edge)),
+            Err(_) => None,
         }
-
-        Some(Self::new(mesh, edge))
     }
 
     /// A walker that will not be used
@@ -495,72 +527,41 @@ where
 
     /// Sets the current edge to the next one with the same source vertex.
     pub fn next(mut self) -> Self {
-        while {
-            self.edge = self
-                .edge
-                .with_target(self.mesh.edges_r()[&self.edge].link().next);
-            self.mesh.edge(self.edge).is_none()
-        } {}
+        self.edge = self
+            .edge
+            .with_target(self.mesh.edges_r()[&self.edge].links()[0].next);
         self
     }
 
     /// Sets the current edge to the previous one with the same source vertex.
     pub fn prev(mut self) -> Self {
-        while {
-            self.edge = self
-                .edge
-                .with_target(self.mesh.edges_r()[&self.edge].link().prev);
-            self.mesh.edge(self.edge).is_none()
-        } {}
+        self.edge = self
+            .edge
+            .with_target(self.mesh.edges_r()[&self.edge].links()[0].prev);
         self
     }
 
     /// Sets the current edge to the next one with the same target vertex.
     pub fn next_in(mut self) -> Self {
-        while {
-            self.edge = self
-                .edge
-                .twin()
-                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().next)
-                .twin();
-            self.mesh.edge(self.edge).is_none()
-        } {}
+        self.edge = self
+            .edge
+            .with_source(self.mesh.edges_r()[&self.edge].links()[1].next);
         self
     }
 
     /// Sets the current edge to the previous one with the same target vertex.
     pub fn prev_in(mut self) -> Self {
-        while {
-            self.edge = self
-                .edge
-                .twin()
-                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().prev)
-                .twin();
-            self.mesh.edge(self.edge).is_none()
-        } {}
+        self.edge = self
+            .edge
+            .with_source(self.mesh.edges_r()[&self.edge].links()[1].prev);
         self
     }
 
     /// Sets the current edge to an edge whose source vertex is the current edge's target vertex.
-    /// Chooses a non-twin edge if possible.
-    pub fn forward(mut self) -> Option<Self> {
-        let twin = self.edge.twin();
-        self.edge = twin;
-        let mut found = true;
-        while {
-            self.edge = self
-                .edge
-                .with_target(self.mesh.edges_r()[&self.edge].link().next);
-            if self.mesh.edge(self.edge).is_some() {
-                false
-            } else if self.edge == twin {
-                found = false;
-                false
-            } else {
-                true
-            }
-        } {}
-        if found {
+    pub fn target_out(mut self) -> Option<Self> {
+        let target = self.mesh.vertices_r()[self.edge.0[1]].target();
+        if let Some(edge) = [self.edge.0[1], target].try_into().ok() {
+            self.edge = edge;
             Some(self)
         } else {
             None
@@ -568,27 +569,10 @@ where
     }
 
     /// Sets the current edge to an edge whose target vertex is the current edge's source vertex.
-    /// Chooses a non-twin edge if possible.
-    pub fn backward(mut self) -> Option<Self> {
-        let twin = self.edge.twin();
-        self.edge = twin;
-        let mut found = true;
-        while {
-            self.edge = self
-                .edge
-                .twin()
-                .with_target(self.mesh.edges_r()[&self.edge.twin()].link().next)
-                .twin();
-            if self.mesh.edge(self.edge).is_some() {
-                false
-            } else if self.edge == twin {
-                found = false;
-                false
-            } else {
-                true
-            }
-        } {}
-        if found {
+    pub fn source_in(mut self) -> Option<Self> {
+        let source = self.mesh.vertices_r()[self.edge.0[0]].source();
+        if let Some(edge) = [source, self.edge.0[0]].try_into().ok() {
+            self.edge = edge;
             Some(self)
         } else {
             None
@@ -723,14 +707,14 @@ where
     }
 }
 
-
 pub(crate) mod internal {
     use super::EdgeId;
     use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
     use crate::vertex::VertexId;
     use fnv::FnvHashMap;
-    #[cfg(feature = "serde_")]
+    #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
+    use typenum::Bit;
 
     #[macro_export]
     #[doc(hidden)]
@@ -738,30 +722,35 @@ pub(crate) mod internal {
         ($name:ident<$e:ident>, new |$id:ident, $link:ident, $value:ident| $new:expr) => {
             impl<$e> crate::edge::internal::Edge for $name<$e> {
                 type E = $e;
+                type Manifold = typenum::B0;
 
-                fn new($id: VertexId, $link: Link<VertexId>, $value: Option<Self::E>) -> Self {
+                fn new(
+                    $id: VertexId,
+                    $link: [crate::edge::internal::Link<crate::vertex::VertexId>; 2],
+                    $value: Self::E,
+                ) -> Self {
                     $new
                 }
 
-                fn link(&self) -> &crate::edge::internal::Link<crate::vertex::VertexId> {
-                    &self.link
+                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
+                    self.links
                 }
 
-                fn link_mut(
+                fn links_mut(
                     &mut self,
-                ) -> &mut crate::edge::internal::Link<crate::vertex::VertexId> {
-                    &mut self.link
+                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
+                    &mut self.links
                 }
 
-                fn to_value(self) -> Option<Self::E> {
+                fn to_value(self) -> Self::E {
                     self.value
                 }
 
-                fn value(&self) -> &Option<Self::E> {
+                fn value(&self) -> &Self::E {
                     &self.value
                 }
 
-                fn value_mut(&mut self) -> &mut Option<Self::E> {
+                fn value_mut(&mut self) -> &mut Self::E {
                     &mut self.value
                 }
             }
@@ -798,20 +787,12 @@ pub(crate) mod internal {
                 fn edges_r_mut(&mut self) -> &mut FnvHashMap<crate::edge::EdgeId, Self::Edge> {
                     &mut self.edges
                 }
-
-                fn num_edges_r(&self) -> usize {
-                    self.num_edges
-                }
-
-                fn num_edges_r_mut(&mut self) -> &mut usize {
-                    &mut self.num_edges
-                }
             }
         };
     }
 
     #[derive(Clone, Copy, Debug)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Link<T> {
         pub prev: T,
         pub next: T,
@@ -829,21 +810,24 @@ pub(crate) mod internal {
 
     pub trait Edge {
         type E;
+        type Manifold: Bit;
 
         /// Takes the vertex id of the source, in case
         /// the edge needs to store a dummy value for the opposite vertex
         /// of the triangle.
-        fn new(id: VertexId, link: Link<VertexId>, value: Option<Self::E>) -> Self;
+        fn new(id: VertexId, links: [Link<VertexId>; 2], value: Self::E) -> Self;
 
-        fn link(&self) -> &Link<VertexId>;
+        /// Target link, then source link
+        fn links(&self) -> [Link<VertexId>; 2];
 
-        fn link_mut(&mut self) -> &mut Link<VertexId>;
+        /// Panics for edges in "manifold" edge meshes
+        fn links_mut(&mut self) -> &mut [Link<VertexId>; 2];
 
-        fn to_value(self) -> Option<Self::E>;
+        fn to_value(self) -> Self::E;
 
-        fn value(&self) -> &Option<Self::E>;
+        fn value(&self) -> &Self::E;
 
-        fn value_mut(&mut self) -> &mut Option<Self::E>;
+        fn value_mut(&mut self) -> &mut Self::E;
     }
 
     pub trait HigherEdge: Edge {
@@ -861,10 +845,6 @@ pub(crate) mod internal {
         fn edges_r(&self) -> &FnvHashMap<EdgeId, Self::Edge>;
 
         fn edges_r_mut(&mut self) -> &mut FnvHashMap<EdgeId, Self::Edge>;
-
-        fn num_edges_r(&self) -> usize;
-
-        fn num_edges_r_mut(&mut self) -> &mut usize;
     }
 
     /// Removes higher-order simplexes that contain some edge

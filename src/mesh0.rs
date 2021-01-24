@@ -1,11 +1,11 @@
 use idmap::OrderedIdMap;
-#[cfg(feature = "serde_")]
+#[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
 use typenum::{U2, U3};
 
 use crate::vertex::internal::Vertex as VertexIntr;
-use crate::vertex::{HasVertices, VertexId};
+use crate::vertex::{HasVertices, IdType, VertexId};
 use crate::VecN;
 
 use internal::Vertex;
@@ -14,10 +14,10 @@ use internal::Vertex;
 /// Basically a vertex list. Also known as a vertex mesh.
 /// Each vertex stores a value of type `V`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh0<V> {
     vertices: OrderedIdMap<VertexId, Vertex<V>>,
-    next_vertex_id: u64,
+    next_vertex_id: IdType,
 }
 
 crate::impl_has_vertices!(ComboMesh0<V>, Vertex);
@@ -63,7 +63,7 @@ impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
                 .collect(),
             next_vertex_id: 0,
         };
-        mesh.next_vertex_id = mesh.vertices.len() as u64;
+        mesh.next_vertex_id = mesh.vertices.len() as IdType;
         mesh
     }
 }
@@ -88,12 +88,12 @@ mod internal {
     use super::ComboMesh0;
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
-    #[cfg(feature = "serde_")]
+    #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
 
     /// Vertex storage
     #[derive(Clone, Debug)]
-    #[cfg_attr(feature = "serde_", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Vertex<V> {
         value: V,
     }
