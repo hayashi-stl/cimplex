@@ -221,6 +221,20 @@ where
         }
     }
 
+    /// Gets the opposite vertex of the ≤1 outgoing triangle that the edge is part of.
+    /// The edge must exist.
+    fn edge_vertex_opp(&self, edge: EdgeId) -> Option<VertexId>
+    where
+        Self::Tri: Tri<Manifold = typenum::B1>
+    {
+        let opp = self.edges_r()[&edge].tri_opp();
+        if opp != edge.0[0] {
+            Some(opp)
+        } else {
+            None
+        }
+    }
+
     /// Iterates over the triangles that an edge is part of.
     /// The edge must exist.
     fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTris<Self> {
@@ -229,11 +243,23 @@ where
             TriId::from_valid([edge.0[0], edge.0[1], opp])
         })
     }
+    
+    /// Gets the ≤1 triangle that the edge is part of.
+    /// The edge must exist.
+    fn edge_tri(&self, edge: EdgeId) -> Option<TriId>
+    where
+        Self::Tri: Tri<Manifold = typenum::B1>
+    {
+        Some(TriId::from_valid([edge.0[0], edge.0[1], self.edge_vertex_opp(edge)?]))
+    }
 
     /// Adds a triangle to the mesh. Vertex order is important!
     /// If the triangle was already there, this replaces the value.
     /// Adds in the required edges if they aren't there already.
     /// Returns the previous value of the triangle, if there was one.
+    ///
+    /// In case of a "manifold" tri mesh, any triangles that were already
+    /// attached to an oriented edge of the new triangle get removed, along with their edges.
     ///
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same.
@@ -805,6 +831,47 @@ pub(crate) mod internal {
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
                     &mut self.links
+                }
+
+                fn to_value(self) -> Self::F {
+                    self.value
+                }
+
+                fn value(&self) -> &Self::F {
+                    &self.value
+                }
+
+                fn value_mut(&mut self) -> &mut Self::F {
+                    &mut self.value
+                }
+            }
+        };
+    }
+
+    #[macro_export]
+    #[doc(hidden)]
+    macro_rules! impl_tri_manifold {
+        ($name:ident<$f:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
+            impl<$f> crate::tri::internal::Tri for $name<$f> {
+                type F = $f;
+                type Manifold = typenum::B1;
+
+                fn new(
+                    $id: crate::vertex::VertexId,
+                    $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 3],
+                    $value: Self::F,
+                ) -> Self {
+                    $new
+                }
+
+                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+                    panic!("Cannot get links in \"manifold\" tri")
+                }
+
+                fn links_mut(
+                    &mut self,
+                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+                    panic!("Cannot get links in \"manifold\" tri")
                 }
 
                 fn to_value(self) -> Self::F {

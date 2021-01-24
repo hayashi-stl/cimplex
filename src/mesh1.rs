@@ -10,7 +10,7 @@ use crate::vertex::VertexId;
 use crate::{edge, vertex::HasVertices, VecN};
 use crate::{edge::EdgeId, vertex::IdType};
 
-use internal::{Edge, HigherVertex};
+use internal::{Edge, HigherVertex, ManifoldEdge};
 
 /// A combinatorial simplicial 1-complex, containing only vertices and (oriented) edges.
 /// Also known as an edge mesh.
@@ -50,8 +50,51 @@ impl<V, E> ComboMesh1<V, E> {
     }
 }
 
+/// A position-containing edge mesh
+pub type Mesh1<V, E, D> = ComboMesh1<(VecN<D>, V), E>;
+
+/// A 2D-position-containing edge mesh
+pub type Mesh12<V, E> = Mesh1<V, E, U2>;
+
+/// A 3D-position-containing edge mesh
+pub type Mesh13<V, E> = Mesh1<V, E, U3>;
+
+/// A combinatorial simplicial 1-complex with the "manifold" property,
+/// which forces every vertex to be a source of at most 1 edge and a target of at most 1 edge.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+pub struct ManifoldComboMesh1<V, E> {
+    vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
+    edges: FnvHashMap<EdgeId, ManifoldEdge<E>>,
+    next_vertex_id: IdType,
+}
+crate::impl_has_vertices!(ManifoldComboMesh1<V, E>, HigherVertex);
+crate::impl_has_edges!(ManifoldComboMesh1<V, E>, ManifoldEdge);
+crate::impl_index_vertex!(ManifoldComboMesh1<V, E>);
+crate::impl_index_edge!(ManifoldComboMesh1<V, E>);
+
+impl<V, E> HasVertices for ManifoldComboMesh1<V, E> {}
+impl<V, E> HasEdges for ManifoldComboMesh1<V, E> {}
+
+impl<V, E> Default for ManifoldComboMesh1<V, E> {
+    fn default() -> Self {
+        ManifoldComboMesh1 {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            next_vertex_id: 0,
+        }
+    }
+}
+
+impl<V, E> ManifoldComboMesh1<V, E> {
+    /// Creates an empty vertex mesh.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 pub(crate) mod internal {
-    use super::ComboMesh1;
+    use super::{ComboMesh1, ManifoldComboMesh1};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
@@ -86,6 +129,16 @@ pub(crate) mod internal {
     #[rustfmt::skip]
     crate::impl_edge!(Edge<E>, new |_id, links, value| Edge { links, value });
 
+    /// An edge of a "manifold" edge mesh
+    #[derive(Clone, Debug)]
+    #[doc(hidden)]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+    pub struct ManifoldEdge<E> {
+        value: E,
+    }
+    #[rustfmt::skip]
+    crate::impl_edge_manifold!(ManifoldEdge<E>, new |_id, _links, value| ManifoldEdge { value });
+
     impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -109,16 +162,28 @@ pub(crate) mod internal {
     impl<V, E> ClearEdgesHigher for ComboMesh1<V, E> {
         fn clear_edges_higher(&mut self) {}
     }
+
+    impl<V, E> RemoveVertexHigher for ManifoldComboMesh1<V, E> {
+        fn remove_vertex_higher(&mut self, vertex: VertexId) {
+            self.vertex_edge_out(vertex).map(|edge| self.remove_edge(edge));
+            self.vertex_edge_in(vertex).map(|edge| self.remove_edge(edge));
+        }
+    }
+
+    impl<V, E> ClearVerticesHigher for ManifoldComboMesh1<V, E> {
+        fn clear_vertices_higher(&mut self) {
+            self.edges.clear();
+        }
+    }
+
+    impl<V, E> RemoveEdgeHigher for ManifoldComboMesh1<V, E> {
+        fn remove_edge_higher(&mut self, _: EdgeId) {}
+    }
+
+    impl<V, E> ClearEdgesHigher for ManifoldComboMesh1<V, E> {
+        fn clear_edges_higher(&mut self) {}
+    }
 }
-
-/// A position-containing edge mesh
-pub type Mesh1<V, E, D> = ComboMesh1<(VecN<D>, V), E>;
-
-/// A 2D-position-containing edge mesh
-pub type Mesh12<V, E> = Mesh1<V, E, U2>;
-
-/// A 3D-position-containing edge mesh
-pub type Mesh13<V, E> = Mesh1<V, E, U3>;
 
 #[cfg(test)]
 mod tests {
@@ -150,6 +215,43 @@ mod tests {
         I: IntoIterator<Item = (EI, E)>,
     >(
         mesh: &ComboMesh1<V, E>,
+        edges: I,
+    ) {
+        let result = mesh
+            .edges()
+            .map(|(id, e)| (*id, e.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = edges
+            .into_iter()
+            .map(|(vertices, e)| (vertices.try_into().ok().unwrap(), e))
+            .collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+        assert_eq!(mesh.num_edges(), expect.len());
+    }
+
+    #[track_caller]
+    fn assert_vertices_m<V: Clone + Debug + Eq + Hash, E, I: IntoIterator<Item = (VertexId, V)>>(
+        mesh: &ManifoldComboMesh1<V, E>,
+        vertices: I,
+    ) {
+        let result = mesh
+            .vertices()
+            .map(|(id, v)| (*id, v.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = vertices.into_iter().collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+    }
+
+    #[track_caller]
+    fn assert_edges_m<
+        V,
+        E: Clone + Debug + Eq + Hash,
+        EI: TryInto<EdgeId>,
+        I: IntoIterator<Item = (EI, E)>,
+    >(
+        mesh: &ManifoldComboMesh1<V, E>,
         edges: I,
     ) {
         let result = mesh
@@ -556,6 +658,339 @@ mod tests {
 
         let set = mesh.vertex_edges_in(ids[3]).collect::<FnvHashSet<_>>();
         let expected = vec![EdgeId([ids[0], ids[3]]), EdgeId([ids[1], ids[3]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_default_m() {
+        let mesh = ManifoldComboMesh1::<(), ()>::default();
+        assert!(mesh.vertices.is_empty());
+        assert!(mesh.edges.is_empty());
+        assert_eq!(mesh.num_edges(), 0);
+    }
+
+    #[test]
+    fn test_add_vertex_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let id = mesh.add_vertex(3);
+        assert_eq!(mesh.vertex(id), Some(&3));
+
+        let id2 = mesh.add_vertex(9);
+        assert_eq!(mesh.vertex(id), Some(&3));
+        assert_eq!(mesh.vertex(id2), Some(&9));
+    }
+
+    #[test]
+    fn test_extend_vertices_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        assert_eq!(mesh.vertex(ids[0]), Some(&3));
+        assert_eq!(mesh.vertex(ids[1]), Some(&6));
+        assert_eq!(mesh.vertex(ids[2]), Some(&9));
+        assert_eq!(mesh.vertex(ids[3]), Some(&2));
+
+        let ids2 = mesh.extend_vertices(vec![5, 8]);
+        assert_vertices_m(
+            &mesh,
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids2[0], 5),
+                (ids2[1], 8),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_add_edge_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let prev = mesh.add_edge([ids[1], ids[3]], 54);
+        assert_eq!(prev, None);
+        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&54));
+        assert_eq!(mesh.edge([ids[3], ids[1]]), None); // twin should not exist
+        assert_eq!(mesh.num_edges(), 1);
+
+        // Add twin
+        let prev = mesh.add_edge([ids[3], ids[1]], 27);
+        assert_eq!(prev, None);
+        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&54));
+        assert_eq!(mesh.edge([ids[3], ids[1]]), Some(&27));
+        assert_eq!(mesh.num_edges(), 2);
+
+        // Modify edge
+        let prev = mesh.add_edge([ids[1], ids[3]], 1);
+        assert_eq!(prev, Some(54));
+        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&1));
+        assert_eq!(mesh.edge([ids[3], ids[1]]), Some(&27));
+        assert_eq!(mesh.num_edges(), 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_add_edge_bad_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        mesh.add_edge([ids[1], ids[1]], 4);
+    }
+
+    #[test]
+    fn test_extend_edges_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[0], ids[3]], 5), // killed by 1-3
+            ([ids[1], ids[3]], 3), // killed by 2-3
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8), 
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_remove_vertex_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.remove_vertex(ids[4]); // edgeless vertex
+        assert_vertices_m(
+            &mesh,
+            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)],
+        );
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+                ([ids[1], ids[2]], 9),
+            ],
+        );
+
+        mesh.remove_vertex(ids[1]); // vertex with edge
+        assert_vertices_m(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
+        assert_edges_m(&mesh, vec![([ids[2], ids[3]], 8)]);
+
+        mesh.remove_vertex(ids[4]); // nonexistent vertex
+        assert_vertices_m(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
+        assert_edges_m(&mesh, vec![([ids[2], ids[3]], 8)]);
+    }
+
+    #[test]
+    fn test_remove_add_vertex_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.remove_vertex(ids[1]);
+        assert_vertices_m(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
+        assert_edges_m(&mesh, vec![([ids[2], ids[3]], 8)]);
+
+        let id2 = mesh.add_vertex(6);
+        assert_vertices_m(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2), (id2, 6)]);
+        assert_edges_m(&mesh, vec![([ids[2], ids[3]], 8)]);
+    }
+
+    #[test]
+    fn test_remove_edge_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.remove_edge([ids[1], ids[2]]); // last outgoing edge from vertex
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+            ],
+        );
+
+        mesh.remove_edge([ids[3], ids[2]]); // nonexistent edge
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_remove_add_edge_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.remove_edge([ids[1], ids[2]]);
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[2], ids[3]], 8),
+            ],
+        );
+
+        mesh.add_edge([ids[1], ids[0]], 4); // killed by 1-3
+        mesh.add_edge([ids[1], ids[3]], 6);
+        assert_edges_m(
+            &mesh,
+            vec![
+                ([ids[3], ids[1]], 2),
+                ([ids[1], ids[3]], 6),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_clear_vertices_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.clear_vertices();
+        assert_vertices_m(&mesh, vec![]);
+        assert_edges_m(&mesh, vec![] as Vec<(EdgeId, _)>);
+    }
+
+    #[test]
+    fn test_clear_edges_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[2], ids[3]], 8),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        mesh.clear_edges();
+        assert_vertices_m(
+            &mesh,
+            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)],
+        );
+        assert_edges_m(&mesh, vec![] as Vec<(EdgeId, _)>);
+    }
+
+    #[test]
+    fn test_walker_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[1], ids[2]], 9),
+            ([ids[2], ids[3]], 8),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        assert!(mesh.edge_walker_from_vertex(ids[4]).is_none());
+
+        let walker = mesh.edge_walker_from_edge([ids[3], ids[1]]);
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+        assert_eq!(walker.first(), ids[3]);
+        assert_eq!(walker.second(), ids[1]);
+
+        let walker = walker.next();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+
+        let walker = walker.prev();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+
+        let walker = walker.next_in();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+
+        let walker = walker.prev_in();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+
+        assert!(walker.twin().is_none());
+
+        let walker = walker.target_out().unwrap();
+        assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
+
+        let walker = walker.target_out().unwrap();
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+
+        let walker = walker.source_in().unwrap();
+        assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
+    }
+
+    #[test]
+    fn test_vertex_edges_out_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[1], ids[2]], 9),
+            ([ids[2], ids[3]], 8),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        let set = mesh.vertex_edges_out(ids[4]).collect::<FnvHashSet<_>>();
+        let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+
+        let set = mesh.vertex_edges_out(ids[2]).collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[2], ids[3]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_vertex_edges_in_m() {
+        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
+        let edges = vec![
+            ([ids[3], ids[1]], 2),
+            ([ids[1], ids[2]], 9),
+        ];
+        mesh.extend_edges(edges.clone());
+
+        let set = mesh.vertex_edges_in(ids[4]).collect::<FnvHashSet<_>>();
+        let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+
+        let set = mesh.vertex_edges_in(ids[2]).collect::<FnvHashSet<_>>();
+        let expected = vec![EdgeId([ids[1], ids[2]])]
             .into_iter()
             .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);

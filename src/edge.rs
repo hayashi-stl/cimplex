@@ -158,11 +158,34 @@ where
         }
     }
 
+    /// Gets the target of the ≤1 outgoing edge that the vertex is a source of.
+    /// The vertex must exist.
+    fn vertex_target(&self, vertex: VertexId) -> Option<VertexId>
+    where
+        Self::Edge: Edge<Manifold = typenum::B1>
+    {
+        let target = self.vertices_r()[vertex].target();
+        if target != vertex {
+            Some(target)
+        } else {
+            None
+        }
+    }
+
     /// Iterates over the outgoing edges of a vertex.
     /// The vertex must exist.
     fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<Self> {
         self.vertex_targets(vertex)
             .map_with(vertex, |s, t| EdgeId([s, t]))
+    }
+    
+    /// Gets the ≤1 outgoing edge that the vertex is a source of.
+    /// The vertex must exist.
+    fn vertex_edge_out(&self, vertex: VertexId) -> Option<EdgeId>
+    where
+        Self::Edge: Edge<Manifold = typenum::B1>
+    {
+        Some(EdgeId([vertex, self.vertex_target(vertex)?]))
     }
 
     /// Iterates over the sources of the incoming edges of a vertex.
@@ -184,11 +207,34 @@ where
         }
     }
 
+    /// Gets the source of the ≤1 incoming edge that the vertex is a target of.
+    /// The vertex must exist.
+    fn vertex_source(&self, vertex: VertexId) -> Option<VertexId>
+    where
+        Self::Edge: Edge<Manifold = typenum::B1>
+    {
+        let source = self.vertices_r()[vertex].source();
+        if source != vertex {
+            Some(source)
+        } else {
+            None
+        }
+    }
+
     /// Iterates over the incoming edges of a vertex.
     /// The vertex must exist.
     fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<Self> {
         self.vertex_sources(vertex)
             .map_with(vertex, |t, s| EdgeId([s, t]))
+    }
+    
+    /// Gets the ≤1 incoming edge that the vertex is a source of.
+    /// The vertex must exist.
+    fn vertex_edge_in(&self, vertex: VertexId) -> Option<EdgeId>
+    where
+        Self::Edge: Edge<Manifold = typenum::B1>
+    {
+        Some(EdgeId([self.vertex_source(vertex)?, vertex]))
     }
 
     /// Adds an edge to the mesh. Vertex order is important!
@@ -527,33 +573,41 @@ where
 
     /// Sets the current edge to the next one with the same source vertex.
     pub fn next(mut self) -> Self {
-        self.edge = self
-            .edge
-            .with_target(self.mesh.edges_r()[&self.edge].links()[0].next);
+        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+            self.edge = self
+                .edge
+                .with_target(self.mesh.edges_r()[&self.edge].links()[0].next);
+        }
         self
     }
 
     /// Sets the current edge to the previous one with the same source vertex.
     pub fn prev(mut self) -> Self {
-        self.edge = self
-            .edge
-            .with_target(self.mesh.edges_r()[&self.edge].links()[0].prev);
+        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+            self.edge = self
+                .edge
+                .with_target(self.mesh.edges_r()[&self.edge].links()[0].prev);
+        }
         self
     }
 
     /// Sets the current edge to the next one with the same target vertex.
     pub fn next_in(mut self) -> Self {
-        self.edge = self
-            .edge
-            .with_source(self.mesh.edges_r()[&self.edge].links()[1].next);
+        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+            self.edge = self
+                .edge
+                .with_source(self.mesh.edges_r()[&self.edge].links()[1].next);
+        }
         self
     }
 
     /// Sets the current edge to the previous one with the same target vertex.
     pub fn prev_in(mut self) -> Self {
-        self.edge = self
-            .edge
-            .with_source(self.mesh.edges_r()[&self.edge].links()[1].prev);
+        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+            self.edge = self
+                .edge
+                .with_source(self.mesh.edges_r()[&self.edge].links()[1].prev);
+        }
         self
     }
 
@@ -740,6 +794,47 @@ pub(crate) mod internal {
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
                     &mut self.links
+                }
+
+                fn to_value(self) -> Self::E {
+                    self.value
+                }
+
+                fn value(&self) -> &Self::E {
+                    &self.value
+                }
+
+                fn value_mut(&mut self) -> &mut Self::E {
+                    &mut self.value
+                }
+            }
+        };
+    }
+
+    #[macro_export]
+    #[doc(hidden)]
+    macro_rules! impl_edge_manifold {
+        ($name:ident<$e:ident>, new |$id:ident, $link:ident, $value:ident| $new:expr) => {
+            impl<$e> crate::edge::internal::Edge for $name<$e> {
+                type E = $e;
+                type Manifold = typenum::B1;
+
+                fn new(
+                    $id: VertexId,
+                    $link: [crate::edge::internal::Link<crate::vertex::VertexId>; 2],
+                    $value: Self::E,
+                ) -> Self {
+                    $new
+                }
+
+                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
+                    panic!("Cannot get links in \"manifold\" edge")
+                }
+
+                fn links_mut(
+                    &mut self,
+                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
+                    panic!("Cannot get links in \"manifold\" edge")
                 }
 
                 fn to_value(self) -> Self::E {

@@ -309,6 +309,20 @@ where
         }
     }
 
+    /// Gets the opposite vertex of the ≤1 outgoing tetrahedron that the triangle is part of.
+    /// The triangle must exist.
+    fn tri_vertex_opp(&self, tri: TriId) -> Option<VertexId>
+    where
+        Self::Tet: Tet<Manifold = typenum::B1>
+    {
+        let opp = self.tris_r()[&tri].tet_opp();
+        if opp != tri.0[0] {
+            Some(opp)
+        } else {
+            None
+        }
+    }
+
     /// Iterates over the tetrahedrons that an triangle is part of.
     /// The triangle must exist.
     fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self> {
@@ -317,11 +331,23 @@ where
             TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp])
         })
     }
+    
+    /// Gets the ≤1 tetrahedron that the triangle is part of.
+    /// The triangle must exist.
+    fn tri_tet(&self, tri: TriId) -> Option<TetId>
+    where
+        Self::Tet: Tet<Manifold = typenum::B1>
+    {
+        Some(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], self.tri_vertex_opp(tri)?]))
+    }
 
     /// Adds a tetrahedron to the mesh. Vertex order is important!
     /// If the tetrahedron was already there, this replaces the value.
     /// Adds in the required edges and triangles if they aren't there already.
     /// Returns the previous value of the tetrahedron, if there was one.
+    ///
+    /// In case of a "manifold" tet mesh, any tetrahedrons that were already
+    /// attached to an oriented triangle of the new tetrahedron get removed, along with their triangles and edges.
     ///
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same.
@@ -802,15 +828,19 @@ where
 
     /// Sets the current opposite vertex to the next one with the same triangle.
     pub fn next_opp(mut self) -> Self {
-        let tet = self.tet();
-        self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).next;
+        if !<<M::Tet as Tet>::Manifold as Bit>::BOOL {
+            let tet = self.tet();
+            self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).next;
+        }
         self
     }
 
     /// Sets the current opposite vertex to the previous one with the same triangle.
     pub fn prev_opp(mut self) -> Self {
-        let tet = self.tet();
-        self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).prev;
+        if !<<M::Tet as Tet>::Manifold as Bit>::BOOL {
+            let tet = self.tet();
+            self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).prev;
+        }
         self
     }
 
@@ -1079,6 +1109,47 @@ pub(crate) mod internal {
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     &mut self.links
+                }
+
+                fn to_value(self) -> Self::T {
+                    self.value
+                }
+
+                fn value(&self) -> &Self::T {
+                    &self.value
+                }
+
+                fn value_mut(&mut self) -> &mut Self::T {
+                    &mut self.value
+                }
+            }
+        };
+    }
+
+    #[macro_export]
+    #[doc(hidden)]
+    macro_rules! impl_tet_manifold {
+        ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
+            impl<$t> crate::tet::internal::Tet for $name<$t> {
+                type T = $t;
+                type Manifold = typenum::B1;
+
+                fn new(
+                    $id: crate::vertex::VertexId,
+                    $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
+                    $value: Self::T,
+                ) -> Self {
+                    $new
+                }
+
+                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                    panic!("Cannot get links in \"manifold\" tet")
+                }
+
+                fn links_mut(
+                    &mut self,
+                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                    panic!("Cannot get links in \"manifold\" tet")
                 }
 
                 fn to_value(self) -> Self::T {

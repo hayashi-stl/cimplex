@@ -16,7 +16,7 @@ use crate::{
     vertex::IdType,
 };
 
-use internal::{HigherTri, Tet};
+use internal::{HigherTri, Tet, ManifoldTet};
 
 /// A combinatorial simplicial 3-complex, containing only vertices, (oriented) edges, (oriented) triangles, and (oriented) tetrahedrons.
 /// Also known as an tet mesh.
@@ -81,8 +81,53 @@ pub type Mesh32<V, E, F, T> = Mesh3<V, E, F, T, U2>;
 /// A 3D-position-containing tri mesh
 pub type Mesh33<V, E, F, T> = Mesh3<V, E, F, T, U3>;
 
+/// A combinatorial simplicial 3-complex with the "manifold" property,
+/// which forces every oriented triangle to be part of at most 1 tetrahedron.
+/// Please don't call `add_edge` or `add_tri` on this.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+pub struct ManifoldComboMesh3<V, E, F, T> {
+    vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
+    edges: FnvHashMap<EdgeId, HigherEdge<E>>,
+    tris: FnvHashMap<TriId, HigherTri<F>>,
+    tets: FnvHashMap<TetId, ManifoldTet<T>>,
+    next_vertex_id: IdType,
+}
+crate::impl_has_vertices!(ManifoldComboMesh3<V, E, F, T>, HigherVertex);
+crate::impl_has_edges!(ManifoldComboMesh3<V, E, F, T>, HigherEdge);
+crate::impl_has_tris!(ManifoldComboMesh3<V, E, F, T>, HigherTri);
+crate::impl_has_tets!(ManifoldComboMesh3<V, E, F, T>, ManifoldTet);
+crate::impl_index_vertex!(ManifoldComboMesh3<V, E, F, T>);
+crate::impl_index_edge!(ManifoldComboMesh3<V, E, F, T>);
+crate::impl_index_tri!(ManifoldComboMesh3<V, E, F, T>);
+crate::impl_index_tet!(ManifoldComboMesh3<V, E, F, T>);
+
+impl<V, E, F, T> HasVertices for ManifoldComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasEdges for ManifoldComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTris for ManifoldComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTets for ManifoldComboMesh3<V, E, F, T> {}
+
+impl<V, E, F, T> Default for ManifoldComboMesh3<V, E, F, T> {
+    fn default() -> Self {
+        ManifoldComboMesh3 {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            tets: FnvHashMap::default(),
+            next_vertex_id: 0,
+        }
+    }
+}
+
+impl<V, E, F, T> ManifoldComboMesh3<V, E, F, T> {
+    /// Creates an empty tri mesh.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 mod internal {
-    use super::ComboMesh3;
+    use super::{ComboMesh3, ManifoldComboMesh3};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::tet::internal::{ClearTetsHigher, RemoveTetHigher};
@@ -130,6 +175,15 @@ mod internal {
     #[rustfmt::skip]
     crate::impl_tet!(Tet<T>, new |_id, links, value| Tet { links, value });
 
+    /// A tetrahedron of a "manifold" tet mesh.
+    #[derive(Clone, Debug)]
+    #[doc(hidden)]
+    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+    pub struct ManifoldTet<T> {
+        value: T,
+    }
+    crate::impl_tet_manifold!(ManifoldTet<T>, new |_id, _links, value| ManifoldTet { value });
+
     impl<V, E, F, T> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -176,6 +230,61 @@ mod internal {
     }
 
     impl<V, E, F, T> ClearTetsHigher for ComboMesh3<V, E, F, T> {
+        fn clear_tets_higher(&mut self) {}
+    }
+
+    impl<V, E, F, T> RemoveVertexHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn remove_vertex_higher(&mut self, vertex: VertexId) {
+            self.remove_edges(
+                self.vertex_edges_out(vertex)
+                    .chain(self.vertex_edges_in(vertex))
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    impl<V, E, F, T> ClearVerticesHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn clear_vertices_higher(&mut self) {
+            self.tris.clear();
+            self.edges.clear();
+        }
+    }
+
+    impl<V, E, F, T> RemoveEdgeHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn remove_edge_higher(&mut self, edge: EdgeId) {
+            self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+        }
+    }
+
+    impl<V, E, F, T> ClearEdgesHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn clear_edges_higher(&mut self) {
+            self.tris.clear();
+        }
+    }
+
+    impl<V, E, F, T> RemoveTriHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn remove_tri_higher(&mut self, tri: TriId) {
+            self.tri_vertex_opp(tri).map(|opp| {
+                self.remove_tet_keep_tris(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp]));
+                // Be careful not to remove `tri` as it will be removed after this function
+                self.remove_tri(TriId::from_valid([opp, tri.0[2], tri.0[1]]));
+                self.remove_tri(TriId::from_valid([tri.0[2], opp, tri.0[0]]));
+                self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], opp]));
+            });
+        }
+    }
+
+    impl<V, E, F, T> ClearTrisHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn clear_tris_higher(&mut self) {
+            self.tets.clear();
+        }
+    }
+
+    impl<V, E, F, T> RemoveTetHigher for ManifoldComboMesh3<V, E, F, T> {
+        fn remove_tet_higher(&mut self, _: TetId) {}
+    }
+
+    impl<V, E, F, T> ClearTetsHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_tets_higher(&mut self) {}
     }
 }
@@ -293,187 +402,6 @@ mod tests {
         assert_eq!(mesh.num_edges(), 0);
         assert_eq!(mesh.num_tris(), 0);
         assert_eq!(mesh.num_tets(), 0);
-    }
-
-    #[test]
-    fn test_add_vertex() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let id = mesh.add_vertex(3);
-        assert_eq!(mesh.vertex(id), Some(&3));
-
-        let id2 = mesh.add_vertex(9);
-        assert_eq!(mesh.vertex(id), Some(&3));
-        assert_eq!(mesh.vertex(id2), Some(&9));
-    }
-
-    #[test]
-    fn test_extend_vertices() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(mesh.vertex(ids[0]), Some(&3));
-        assert_eq!(mesh.vertex(ids[1]), Some(&6));
-        assert_eq!(mesh.vertex(ids[2]), Some(&9));
-        assert_eq!(mesh.vertex(ids[3]), Some(&2));
-
-        let ids2 = mesh.extend_vertices(vec![5, 8]);
-        assert_vertices(
-            &mesh,
-            vec![
-                (ids[0], 3),
-                (ids[1], 6),
-                (ids[2], 9),
-                (ids[3], 2),
-                (ids2[0], 5),
-                (ids2[1], 8),
-            ],
-        );
-    }
-
-    #[test]
-    fn test_add_edge() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        let prev = mesh.add_edge([ids[1], ids[3]], 54);
-        assert_eq!(prev, None);
-        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&54));
-        assert_eq!(mesh.edge([ids[3], ids[1]]), None); // twin should not exist
-        assert_eq!(mesh.num_edges(), 1);
-
-        // Add twin
-        let prev = mesh.add_edge([ids[3], ids[1]], 27);
-        assert_eq!(prev, None);
-        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&54));
-        assert_eq!(mesh.edge([ids[3], ids[1]]), Some(&27));
-        assert_eq!(mesh.num_edges(), 2);
-
-        // Modify edge
-        let prev = mesh.add_edge([ids[1], ids[3]], 1);
-        assert_eq!(prev, Some(54));
-        assert_eq!(mesh.edge([ids[1], ids[3]]), Some(&1));
-        assert_eq!(mesh.edge([ids[3], ids[1]]), Some(&27));
-        assert_eq!(mesh.num_edges(), 2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_add_edge_bad() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        mesh.add_edge([ids[1], ids[1]], 4);
-    }
-
-    #[test]
-    fn test_extend_edges() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        let edges = vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[1], ids[3]], 3),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-        ];
-        mesh.extend_edges(edges.clone());
-
-        for (edge, value) in edges {
-            assert_eq!(mesh.edge(edge), Some(&value))
-        }
-        assert_eq!(mesh.num_edges(), 5);
-    }
-
-    #[test]
-    fn test_add_tri() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5, || 0), None);
-
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[1], ids[0]], 0),
-                ([ids[0], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-            ],
-        );
-        assert_tris(&mesh, vec![([ids[0], ids[2], ids[1]], 5)]);
-
-        // Prematurely add edge
-        mesh.add_edge([ids[1], ids[2]], 1);
-
-        // Add twin
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6, || 0), None);
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[1], ids[0]], 0),
-                ([ids[0], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[2]], 1),
-                ([ids[0], ids[1]], 0),
-                ([ids[2], ids[0]], 0),
-            ],
-        );
-        assert_tris(
-            &mesh,
-            vec![([ids[0], ids[2], ids[1]], 5), ([ids[0], ids[1], ids[2]], 6)],
-        );
-
-        // Modify tri
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7, || 0), Some(6));
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[1], ids[0]], 0),
-                ([ids[0], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[2]], 1),
-                ([ids[0], ids[1]], 0),
-                ([ids[2], ids[0]], 0),
-            ],
-        );
-        assert_tris(
-            &mesh,
-            vec![([ids[0], ids[2], ids[1]], 5), ([ids[0], ids[1], ids[2]], 7)],
-        );
-    }
-
-    #[test]
-    fn test_extend_tris() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
-
-        let tris = vec![
-            ([ids[0], ids[1], ids[2]], 1),
-            ([ids[3], ids[1], ids[2]], 2),
-            ([ids[4], ids[2], ids[1]], 3),
-            ([ids[4], ids[1], ids[5]], 4),
-            ([ids[5], ids[6], ids[4]], 5),
-            ([ids[4], ids[6], ids[5]], 6),
-        ];
-        mesh.extend_tris(tris.clone(), || 0);
-
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[0], ids[1]], 0),
-                ([ids[1], ids[2]], 0),
-                ([ids[2], ids[0]], 0),
-                ([ids[3], ids[1]], 0),
-                ([ids[2], ids[3]], 0),
-                ([ids[4], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[4]], 0),
-                ([ids[4], ids[1]], 0),
-                ([ids[1], ids[5]], 0),
-                ([ids[5], ids[4]], 0),
-                ([ids[5], ids[6]], 0),
-                ([ids[6], ids[4]], 0),
-                ([ids[4], ids[5]], 0),
-                ([ids[4], ids[6]], 0),
-                ([ids[6], ids[5]], 0),
-            ],
-        );
-        assert_tris(&mesh, tris);
     }
 
     #[test]
