@@ -6,7 +6,7 @@ use typenum::{U2, U3};
 
 use crate::vertex::internal::Vertex as VertexIntr;
 use crate::vertex::{HasVertices, IdType, VertexId};
-use crate::VecN;
+use crate::PtN;
 
 use internal::Vertex;
 
@@ -76,7 +76,7 @@ impl<V> Extend<(VertexId, V)> for ComboMesh0<V> {
 }
 
 /// A position-containing vertex mesh
-pub type Mesh0<V, D> = ComboMesh0<(VecN<D>, V)>;
+pub type Mesh0<V, D> = ComboMesh0<(PtN<D>, V)>;
 
 /// A 2D-position-containing vertex mesh
 pub type Mesh02<V> = Mesh0<V, U2>;

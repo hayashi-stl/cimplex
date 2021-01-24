@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use typenum::{U2, U3};
 
 use crate::vertex::VertexId;
-use crate::{edge, vertex::HasVertices, VecN};
+use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
 
 use internal::{Edge, HigherVertex, ManifoldEdge};
@@ -51,7 +51,7 @@ impl<V, E> ComboMesh1<V, E> {
 }
 
 /// A position-containing edge mesh
-pub type Mesh1<V, E, D> = ComboMesh1<(VecN<D>, V), E>;
+pub type Mesh1<V, E, D> = ComboMesh1<(PtN<D>, V), E>;
 
 /// A 2D-position-containing edge mesh
 pub type Mesh12<V, E> = Mesh1<V, E, U2>;
@@ -165,8 +165,10 @@ pub(crate) mod internal {
 
     impl<V, E> RemoveVertexHigher for ManifoldComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.vertex_edge_out(vertex).map(|edge| self.remove_edge(edge));
-            self.vertex_edge_in(vertex).map(|edge| self.remove_edge(edge));
+            self.vertex_edge_out(vertex)
+                .map(|edge| self.remove_edge(edge));
+            self.vertex_edge_in(vertex)
+                .map(|edge| self.remove_edge(edge));
         }
     }
 
@@ -746,7 +748,7 @@ mod tests {
             ([ids[0], ids[3]], 5), // killed by 1-3
             ([ids[1], ids[3]], 3), // killed by 2-3
             ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8), 
+            ([ids[2], ids[3]], 8),
             ([ids[1], ids[2]], 9),
         ];
         mesh.extend_edges(edges.clone());
@@ -827,22 +829,10 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.remove_edge([ids[1], ids[2]]); // last outgoing edge from vertex
-        assert_edges_m(
-            &mesh,
-            vec![
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-            ],
-        );
+        assert_edges_m(&mesh, vec![([ids[3], ids[1]], 2), ([ids[2], ids[3]], 8)]);
 
         mesh.remove_edge([ids[3], ids[2]]); // nonexistent edge
-        assert_edges_m(
-            &mesh,
-            vec![
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-            ],
-        );
+        assert_edges_m(&mesh, vec![([ids[3], ids[1]], 2), ([ids[2], ids[3]], 8)]);
     }
 
     #[test]
@@ -857,23 +847,11 @@ mod tests {
         mesh.extend_edges(edges.clone());
 
         mesh.remove_edge([ids[1], ids[2]]);
-        assert_edges_m(
-            &mesh,
-            vec![
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-            ],
-        );
+        assert_edges_m(&mesh, vec![([ids[3], ids[1]], 2), ([ids[2], ids[3]], 8)]);
 
         mesh.add_edge([ids[1], ids[0]], 4); // killed by 1-3
         mesh.add_edge([ids[1], ids[3]], 6);
-        assert_edges_m(
-            &mesh,
-            vec![
-                ([ids[3], ids[1]], 2),
-                ([ids[1], ids[3]], 6),
-            ],
-        );
+        assert_edges_m(&mesh, vec![([ids[3], ids[1]], 2), ([ids[1], ids[3]], 6)]);
     }
 
     #[test]
@@ -979,10 +957,7 @@ mod tests {
     fn test_vertex_edges_in_m() {
         let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
-        let edges = vec![
-            ([ids[3], ids[1]], 2),
-            ([ids[1], ids[2]], 9),
-        ];
+        let edges = vec![([ids[3], ids[1]], 2), ([ids[1], ids[2]], 9)];
         mesh.extend_edges(edges.clone());
 
         let set = mesh.vertex_edges_in(ids[4]).collect::<FnvHashSet<_>>();

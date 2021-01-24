@@ -67,11 +67,15 @@ impl VertexId {
     }
 }
 
+/// Iterator over the vertex ids of a mesh.
+pub type VertexIds<'a, VT> = idmap::Keys<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>;
+
 /// Iterator over the vertices of a mesh.
 pub type Vertices<'a, VT> = Map<
     idmap::Iter<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
     for<'b> fn((&'b VertexId, &'b VT)) -> (&'b VertexId, &'b <VT as Vertex>::V),
 >;
+
 /// Iterator over the vertices of a mesh mutably.
 pub type VerticesMut<'a, VT> = Map<
     idmap::IterMut<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>,
@@ -89,6 +93,11 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
     /// Gets the number of vertices.
     fn num_vertices(&self) -> usize {
         self.vertices_r().len()
+    }
+
+    /// Iterates over the vertex ids of this mesh.
+    fn vertex_ids(&self) -> VertexIds<Self::Vertex> {
+        self.vertices_r().keys()
     }
 
     /// Iterates over the vertices of this mesh.

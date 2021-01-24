@@ -110,11 +110,15 @@ impl TriId {
     }
 }
 
+/// Iterator over the triangle ids of a mesh.
+pub type TriIds<'a, FT> = hash_map::Keys<'a, TriId, FT>;
+
 /// Iterator over the triangles of a mesh.
 pub type Tris<'a, FT> = Map<
     hash_map::Iter<'a, TriId, FT>,
     for<'b> fn((&'b TriId, &'b FT)) -> (&'b TriId, &'b <FT as Tri>::F),
 >;
+
 /// Iterator over the triangles of a mesh mutably.
 pub type TrisMut<'a, FT> = Map<
     hash_map::IterMut<'a, TriId, FT>,
@@ -149,6 +153,11 @@ where
     /// Gets the number of triangles.
     fn num_tris(&self) -> usize {
         self.tris_r().len()
+    }
+
+    /// Iterates over the triangle ids of this mesh.
+    fn tri_ids(&self) -> TriIds<Self::Tri> {
+        self.tris_r().keys()
     }
 
     /// Iterates over the triangles of this mesh.
@@ -225,7 +234,7 @@ where
     /// The edge must exist.
     fn edge_vertex_opp(&self, edge: EdgeId) -> Option<VertexId>
     where
-        Self::Tri: Tri<Manifold = typenum::B1>
+        Self::Tri: Tri<Manifold = typenum::B1>,
     {
         let opp = self.edges_r()[&edge].tri_opp();
         if opp != edge.0[0] {
@@ -243,14 +252,18 @@ where
             TriId::from_valid([edge.0[0], edge.0[1], opp])
         })
     }
-    
+
     /// Gets the ≤1 triangle that the edge is part of.
     /// The edge must exist.
     fn edge_tri(&self, edge: EdgeId) -> Option<TriId>
     where
-        Self::Tri: Tri<Manifold = typenum::B1>
+        Self::Tri: Tri<Manifold = typenum::B1>,
     {
-        Some(TriId::from_valid([edge.0[0], edge.0[1], self.edge_vertex_opp(edge)?]))
+        Some(TriId::from_valid([
+            edge.0[0],
+            edge.0[1],
+            self.edge_vertex_opp(edge)?,
+        ]))
     }
 
     /// Adds a triangle to the mesh. Vertex order is important!
@@ -634,15 +647,19 @@ where
 
     /// Sets the current opposite vertex to the next one with the same edge.
     pub fn next_opp(mut self) -> Self {
-        let tri = self.tri();
-        self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).next;
+        if !<<M::Tri as Tri>::Manifold as Bit>::BOOL {
+            let tri = self.tri();
+            self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).next;
+        }
         self
     }
 
     /// Sets the current opposite vertex to the previous one with the same edge.
     pub fn prev_opp(mut self) -> Self {
-        let tri = self.tri();
-        self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).prev;
+        if !<<M::Tri as Tri>::Manifold as Bit>::BOOL {
+            let tri = self.tri();
+            self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).prev;
+        }
         self
     }
 

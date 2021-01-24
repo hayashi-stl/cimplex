@@ -8,8 +8,8 @@ pub mod tet;
 pub mod tri;
 pub mod vertex;
 
-use nalgebra::VectorN;
-type VecN<D> = VectorN<f64, D>;
+use nalgebra::Point;
+type PtN<D> = Point<f64, D>;
 
 pub use mesh0::{ComboMesh0, Mesh0, Mesh02, Mesh03};
 pub use mesh1::{ComboMesh1, Mesh1, Mesh12, Mesh13};

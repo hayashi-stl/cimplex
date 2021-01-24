@@ -171,11 +171,15 @@ impl TetId {
     }
 }
 
+/// Iterator over the tetrahedron ids of a mesh.
+pub type TetIds<'a, TT> = hash_map::Keys<'a, TetId, TT>;
+
 /// Iterator over the tetrahedrons of a mesh.
 pub type Tets<'a, TT> = Map<
     hash_map::Iter<'a, TetId, TT>,
     for<'b> fn((&'b TetId, &'b TT)) -> (&'b TetId, &'b <TT as Tet>::T),
 >;
+
 /// Iterator over the tetrahedrons of a mesh mutably.
 pub type TetsMut<'a, TT> = Map<
     hash_map::IterMut<'a, TetId, TT>,
@@ -218,6 +222,11 @@ where
     /// Gets the number of tetrahedrons.
     fn num_tets(&self) -> usize {
         self.tets_r().len()
+    }
+
+    /// Iterates over the tetrahedron ids of this mesh.
+    fn tet_ids(&self) -> TetIds<Self::Tet> {
+        self.tets_r().keys()
     }
 
     /// Iterates over the tetrahedrons of this mesh.
@@ -313,7 +322,7 @@ where
     /// The triangle must exist.
     fn tri_vertex_opp(&self, tri: TriId) -> Option<VertexId>
     where
-        Self::Tet: Tet<Manifold = typenum::B1>
+        Self::Tet: Tet<Manifold = typenum::B1>,
     {
         let opp = self.tris_r()[&tri].tet_opp();
         if opp != tri.0[0] {
@@ -331,14 +340,19 @@ where
             TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp])
         })
     }
-    
+
     /// Gets the ≤1 tetrahedron that the triangle is part of.
     /// The triangle must exist.
     fn tri_tet(&self, tri: TriId) -> Option<TetId>
     where
-        Self::Tet: Tet<Manifold = typenum::B1>
+        Self::Tet: Tet<Manifold = typenum::B1>,
     {
-        Some(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], self.tri_vertex_opp(tri)?]))
+        Some(TetId::from_valid([
+            tri.0[0],
+            tri.0[1],
+            tri.0[2],
+            self.tri_vertex_opp(tri)?,
+        ]))
     }
 
     /// Adds a tetrahedron to the mesh. Vertex order is important!
@@ -384,9 +398,9 @@ where
                                 tri.0[0], tri.0[1], tri.0[2], target,
                             ]));
                             // Triangles were attached to that tetrahedron and should be removed
-                            self.remove_tri(TriId::from_valid([*opp, tri.0[2], tri.0[1]]));
-                            self.remove_tri(TriId::from_valid([tri.0[2], *opp, tri.0[0]]));
-                            self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], *opp]));
+                            self.remove_tri(TriId::from_valid([target, tri.0[2], tri.0[1]]));
+                            self.remove_tri(TriId::from_valid([tri.0[2], target, tri.0[0]]));
+                            self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], target]));
                         }
                         // First tet from tri
                         *self.tris_r_mut().get_mut(tri).unwrap().tet_opp_mut() = *opp;

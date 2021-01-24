@@ -73,11 +73,15 @@ impl EdgeId {
     }
 }
 
+/// Iterator over the edges ids of a mesh.
+pub type EdgeIds<'a, ET> = hash_map::Keys<'a, EdgeId, ET>;
+
 /// Iterator over the edges of a mesh.
 pub type Edges<'a, ET> = Map<
     hash_map::Iter<'a, EdgeId, ET>,
     for<'b> fn((&'b EdgeId, &'b ET)) -> (&'b EdgeId, &'b <ET as Edge>::E),
 >;
+
 /// Iterator over the edges of a mesh mutably.
 pub type EdgesMut<'a, ET> = Map<
     hash_map::IterMut<'a, EdgeId, ET>,
@@ -105,6 +109,11 @@ where
     /// Gets the number of edges.
     fn num_edges(&self) -> usize {
         self.edges_r().len()
+    }
+
+    /// Iterates over the edge ids of this mesh.
+    fn edge_ids(&self) -> EdgeIds<Self::Edge> {
+        self.edges_r().keys()
     }
 
     /// Iterates over the edges of this mesh.
@@ -162,7 +171,7 @@ where
     /// The vertex must exist.
     fn vertex_target(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>
+        Self::Edge: Edge<Manifold = typenum::B1>,
     {
         let target = self.vertices_r()[vertex].target();
         if target != vertex {
@@ -178,12 +187,12 @@ where
         self.vertex_targets(vertex)
             .map_with(vertex, |s, t| EdgeId([s, t]))
     }
-    
+
     /// Gets the ≤1 outgoing edge that the vertex is a source of.
     /// The vertex must exist.
     fn vertex_edge_out(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>
+        Self::Edge: Edge<Manifold = typenum::B1>,
     {
         Some(EdgeId([vertex, self.vertex_target(vertex)?]))
     }
@@ -211,7 +220,7 @@ where
     /// The vertex must exist.
     fn vertex_source(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>
+        Self::Edge: Edge<Manifold = typenum::B1>,
     {
         let source = self.vertices_r()[vertex].source();
         if source != vertex {
@@ -227,12 +236,12 @@ where
         self.vertex_sources(vertex)
             .map_with(vertex, |t, s| EdgeId([s, t]))
     }
-    
+
     /// Gets the ≤1 incoming edge that the vertex is a source of.
     /// The vertex must exist.
     fn vertex_edge_in(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>
+        Self::Edge: Edge<Manifold = typenum::B1>,
     {
         Some(EdgeId([self.vertex_source(vertex)?, vertex]))
     }

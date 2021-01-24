@@ -10,13 +10,13 @@ use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
-use crate::VecN;
+use crate::PtN;
 use crate::{
     edge::{EdgeId, HasEdges},
     vertex::IdType,
 };
 
-use internal::{HigherTri, Tet, ManifoldTet};
+use internal::{HigherTri, ManifoldTet, Tet};
 
 /// A combinatorial simplicial 3-complex, containing only vertices, (oriented) edges, (oriented) triangles, and (oriented) tetrahedrons.
 /// Also known as an tet mesh.
@@ -73,7 +73,7 @@ impl<V, E, F, T> ComboMesh3<V, E, F, T> {
 }
 
 /// A position-containing tri mesh
-pub type Mesh3<V, E, F, T, D> = ComboMesh3<(VecN<D>, V), E, F, T>;
+pub type Mesh3<V, E, F, T, D> = ComboMesh3<(PtN<D>, V), E, F, T>;
 
 /// A 2D-position-containing tri mesh
 pub type Mesh32<V, E, F, T> = Mesh3<V, E, F, T, U2>;
@@ -182,7 +182,12 @@ mod internal {
     pub struct ManifoldTet<T> {
         value: T,
     }
-    crate::impl_tet_manifold!(ManifoldTet<T>, new |_id, _links, value| ManifoldTet { value });
+    crate::impl_tet_manifold!(
+        ManifoldTet<T>,
+        new | _id,
+        _links,
+        value | ManifoldTet { value }
+    );
 
     impl<V, E, F, T> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
@@ -196,6 +201,7 @@ mod internal {
 
     impl<V, E, F, T> ClearVerticesHigher for ComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
+            self.tets.clear();
             self.tris.clear();
             self.edges.clear();
         }
@@ -209,6 +215,7 @@ mod internal {
 
     impl<V, E, F, T> ClearEdgesHigher for ComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
+            self.tets.clear();
             self.tris.clear();
         }
     }
@@ -245,6 +252,7 @@ mod internal {
 
     impl<V, E, F, T> ClearVerticesHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
+            self.tets.clear();
             self.tris.clear();
             self.edges.clear();
         }
@@ -258,6 +266,7 @@ mod internal {
 
     impl<V, E, F, T> ClearEdgesHigher for ManifoldComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
+            self.tets.clear();
             self.tris.clear();
         }
     }
@@ -377,6 +386,101 @@ mod tests {
         I: IntoIterator<Item = (TI, T)>,
     >(
         mesh: &ComboMesh3<V, E, F, T>,
+        tets: I,
+    ) {
+        let result = mesh
+            .tets()
+            .map(|(id, f)| (*id, f.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = tets
+            .into_iter()
+            .map(|(vertices, f)| (vertices.try_into().ok().unwrap(), f))
+            .collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+        assert_eq!(mesh.num_tets(), expect.len());
+    }
+
+    #[track_caller]
+    fn assert_vertices_m<
+        V: Clone + Debug + Eq + Hash,
+        E,
+        F,
+        T,
+        I: IntoIterator<Item = (VertexId, V)>,
+    >(
+        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        vertices: I,
+    ) {
+        let result = mesh
+            .vertices()
+            .map(|(id, v)| (*id, v.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = vertices.into_iter().collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+    }
+
+    #[track_caller]
+    fn assert_edges_m<
+        V,
+        E: Clone + Debug + Eq + Hash,
+        EI: TryInto<EdgeId>,
+        F,
+        T,
+        I: IntoIterator<Item = (EI, E)>,
+    >(
+        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        edges: I,
+    ) {
+        let result = mesh
+            .edges()
+            .map(|(id, e)| (*id, e.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = edges
+            .into_iter()
+            .map(|(vertices, e)| (vertices.try_into().ok().unwrap(), e))
+            .collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+        assert_eq!(mesh.num_edges(), expect.len());
+    }
+
+    #[track_caller]
+    fn assert_tris_m<
+        V,
+        E,
+        F: Clone + Debug + Eq + Hash,
+        FI: TryInto<TriId>,
+        T,
+        I: IntoIterator<Item = (FI, F)>,
+    >(
+        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        tris: I,
+    ) {
+        let result = mesh
+            .tris()
+            .map(|(id, f)| (*id, f.clone()))
+            .collect::<FnvHashSet<_>>();
+        let expect = tris
+            .into_iter()
+            .map(|(vertices, f)| (vertices.try_into().ok().unwrap(), f))
+            .collect::<FnvHashSet<_>>();
+
+        assert_eq!(result, expect);
+        assert_eq!(mesh.num_tris(), expect.len());
+    }
+
+    #[track_caller]
+    fn assert_tets_m<
+        V,
+        E,
+        F,
+        T: Clone + Debug + Eq + Hash,
+        TI: TryInto<TetId>,
+        I: IntoIterator<Item = (TI, T)>,
+    >(
+        mesh: &ManifoldComboMesh3<V, E, F, T>,
         tets: I,
     ) {
         let result = mesh
@@ -1304,6 +1408,449 @@ mod tests {
         ]
         .into_iter()
         .collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_default_m() {
+        let mesh = ManifoldComboMesh3::<(), (), (), ()>::default();
+        assert!(mesh.vertices.is_empty());
+        assert!(mesh.edges.is_empty());
+        assert!(mesh.tris.is_empty());
+        assert!(mesh.tets.is_empty());
+        assert_eq!(mesh.num_edges(), 0);
+        assert_eq!(mesh.num_tris(), 0);
+        assert_eq!(mesh.num_tets(), 0);
+    }
+
+    #[test]
+    fn test_add_tet_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
+        assert_eq!(
+            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0),
+            None
+        );
+        assert_tris_m(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+            ],
+        );
+        assert_tets_m(&mesh, vec![([ids[0], ids[1], ids[3], ids[2]], 1)]);
+
+        // Add twin
+        assert_eq!(
+            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2, || 0, || 0),
+            None
+        );
+        assert_tris_m(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+                ([ids[0], ids[1], ids[2]], 0),
+                ([ids[3], ids[2], ids[1]], 0),
+                ([ids[2], ids[3], ids[0]], 0),
+                ([ids[1], ids[0], ids[3]], 0),
+            ],
+        );
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[3], ids[2]], 1),
+                ([ids[0], ids[1], ids[2], ids[3]], 2),
+            ],
+        );
+
+        // Modify tet
+        assert_eq!(
+            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3, || 0, || 0),
+            Some(2)
+        );
+        assert_tris_m(
+            &mesh,
+            vec![
+                ([ids[2], ids[1], ids[0]], 0),
+                ([ids[1], ids[2], ids[3]], 0),
+                ([ids[0], ids[3], ids[2]], 0),
+                ([ids[3], ids[0], ids[1]], 0),
+                ([ids[0], ids[1], ids[2]], 0),
+                ([ids[3], ids[2], ids[1]], 0),
+                ([ids[2], ids[3], ids[0]], 0),
+                ([ids[1], ids[0], ids[3]], 0),
+            ],
+        );
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[3], ids[2]], 1),
+                ([ids[0], ids[1], ids[2], ids[3]], 3),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_extend_tets_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+
+        let tets = vec![
+            ([ids[0], ids[1], ids[2], ids[3]], 1), // killed by 0-2-3-4
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+        assert_eq!(mesh.num_tris(), 20);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[1], ids[2], ids[3], ids[0]], 2),
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_remove_tet_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
+
+        assert_eq!(mesh.remove_tet([ids[4], ids[1], ids[3], ids[2]]), None);
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_remove_add_tet_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
+        assert_eq!(
+            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7, || 0, || 0),
+            None
+        );
+        assert_eq!(
+            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0),
+            None
+        );
+        assert_eq!(mesh.num_tris(), 20);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[1], ids[2], ids[3]], 8),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+                ([ids[7], ids[6], ids[4], ids[8]], 7),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_clear_vertices_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        mesh.clear_vertices();
+        assert_vertices_m(&mesh, vec![]);
+        assert_edges_m(&mesh, vec![] as Vec<(EdgeId, _)>);
+        assert_tris_m(&mesh, vec![] as Vec<(TriId, _)>);
+        assert_tets_m(&mesh, vec![] as Vec<(TetId, _)>);
+    }
+
+    #[test]
+    fn test_clear_edges_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets, || 0, || 0);
+
+        mesh.clear_edges();
+        assert_vertices_m(
+            &mesh,
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids[4], 5),
+                (ids[5], 8),
+                (ids[6], 1),
+                (ids[7], 4),
+            ],
+        );
+        assert_edges_m(&mesh, vec![] as Vec<(EdgeId, _)>);
+        assert_tris_m(&mesh, vec![] as Vec<(TriId, _)>);
+        assert_tets_m(&mesh, vec![] as Vec<(TetId, _)>);
+    }
+
+    #[test]
+    fn test_clear_tris_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets, || 0, || 0);
+
+        mesh.clear_tris();
+        assert_vertices_m(
+            &mesh,
+            vec![
+                (ids[0], 3),
+                (ids[1], 6),
+                (ids[2], 9),
+                (ids[3], 2),
+                (ids[4], 5),
+                (ids[5], 8),
+                (ids[6], 1),
+                (ids[7], 4),
+            ],
+        );
+        assert_ne!(mesh.num_edges(), 0); // Don't want to think about this number
+        assert_tris_m(&mesh, vec![] as Vec<(TriId, _)>);
+        assert_tets_m(&mesh, vec![] as Vec<(TetId, _)>);
+    }
+
+    #[test]
+    fn test_clear_tets_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        mesh.clear_tets();
+        assert_eq!(mesh.num_vertices(), 9);
+        assert_ne!(mesh.num_edges(), 0); // Don't want to think about this number
+        assert_eq!(mesh.num_tris(), 20);
+        assert_tets_m(&mesh, vec![] as Vec<(TetId, _)>);
+    }
+
+    #[test]
+    fn test_tet_walker_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        let walker = mesh.tet_walker_from_edge_edge([ids[2], ids[3]], [ids[1], ids[0]]);
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[1], ids[0]]));
+        assert_eq!(walker.first(), ids[2]);
+        assert_eq!(walker.second(), ids[3]);
+        assert_eq!(walker.third(), ids[1]);
+        assert_eq!(walker.fourth(), ids[0]);
+        assert_eq!(
+            walker.tri(),
+            [ids[2], ids[3], ids[1]].try_into().ok().unwrap()
+        );
+        assert_eq!(
+            walker.tet(),
+            [ids[2], ids[3], ids[1], ids[0]].try_into().ok().unwrap()
+        );
+
+        let walker = walker.next_edge();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[1]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[2], ids[0]]));
+
+        let walker = walker.next_edge();
+        assert_eq!(walker.edge(), EdgeId([ids[1], ids[2]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[3], ids[0]]));
+
+        let walker = walker.next_edge();
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[1], ids[0]]));
+
+        let branch = walker.prev_edge(); // branch!
+        assert_eq!(branch.edge(), EdgeId([ids[1], ids[2]]));
+        assert_eq!(branch.opp_edge(), EdgeId([ids[3], ids[0]]));
+
+        let walker = walker.next_tri();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[2]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[0], ids[1]]));
+
+        let walker = walker.next_tri();
+        assert_eq!(walker.edge(), EdgeId([ids[1], ids[0]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[2], ids[3]]));
+
+        let walker = walker.next_tri();
+        assert_eq!(walker.edge(), EdgeId([ids[0], ids[1]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[3], ids[2]]));
+
+        let walker = walker.next_tri();
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[1], ids[0]]));
+
+        let branch = walker.prev_tri(); // branch!
+        assert_eq!(branch.edge(), EdgeId([ids[0], ids[1]]));
+        assert_eq!(branch.opp_edge(), EdgeId([ids[3], ids[2]]));
+
+        let branch = branch.flip_tri(); // branch continue!
+        assert_eq!(branch.edge(), EdgeId([ids[3], ids[2]]));
+        assert_eq!(branch.opp_edge(), EdgeId([ids[0], ids[1]]));
+
+        let walker = walker.next_opp();
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[1], ids[0]]));
+
+        let walker = walker.prev_opp();
+        assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[1], ids[0]]));
+
+        let walker = mesh.tet_walker_from_edge_edge([ids[4], ids[3]], [ids[2], ids[0]]);
+        let walker = walker.on_twin_tri().unwrap();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[4]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[2], ids[5]]));
+
+        let walker = walker.prev_tri().on_twin_tri().unwrap();
+        assert_eq!(walker.edge(), EdgeId([ids[3], ids[4]]));
+        assert_eq!(walker.opp_edge(), EdgeId([ids[5], ids[6]]));
+
+        assert!(walker.twin().is_none());
+    }
+
+    #[test]
+    fn test_tri_tets_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        let set = mesh
+            .tri_tets([ids[4], ids[5], ids[6]])
+            .collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_edge_tets_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        let list = mesh.edge_tets([ids[6], ids[7]]).collect::<Vec<_>>();
+        assert_eq!(list.len(), 1);
+        let set = list.into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
+        assert_eq!(set, expected);
+    }
+
+    #[test]
+    fn test_vertex_tets_m() {
+        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        let list = mesh.vertex_tets(ids[7]).collect::<Vec<_>>();
+        assert_eq!(list.len(), 1);
+        let set = list.into_iter().collect::<FnvHashSet<_>>();
+        let expected = vec![TetId([ids[4], ids[5], ids[6], ids[7]])]
+            .into_iter()
+            .collect::<FnvHashSet<_>>();
         assert_eq!(set, expected);
     }
 }
