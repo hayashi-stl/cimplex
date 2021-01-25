@@ -1,5 +1,4 @@
 pub mod edge;
-mod iter;
 pub mod mesh0;
 pub mod mesh1;
 pub mod mesh2;
@@ -8,6 +7,9 @@ pub mod tet;
 pub mod tri;
 pub mod vertex;
 pub mod tetrahedralize;
+
+mod iter;
+mod private;
 
 use nalgebra::Point;
 type PtN<D> = Point<f64, D>;

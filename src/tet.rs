@@ -1,5 +1,6 @@
 //! Traits and structs related to tetrahedrons
 
+use fnv::FnvHashMap;
 use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,7 @@ use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
 use typenum::Bit;
 
-use crate::edge::{EdgeId, HasEdges, VertexEdgesOut};
+use crate::{edge::{EdgeId, HasEdges, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
     internal::{HasTris as HasTrisIntr, HigherTri, Tri},
@@ -22,8 +23,7 @@ use crate::{
     edge::internal::{Edge, HasEdges as HasEdgesIntr, Link},
     vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
-
-use internal::{ClearTetsHigher, RemoveTetHigher, Tet};
+use crate::private::{Lock, Key};
 
 /// An tetrahedron id is just the tetrahedrons's vertices in winding order,
 /// with the smallest two indexes first.
@@ -218,35 +218,114 @@ macro_rules! T {
     };
 }
 
+/// Tetrahedron attributes
+pub trait Tet {
+    type T;
+    type Mwb: Bit;
+
+    #[doc(hidden)]
+    fn new<L: Lock>(id: VertexId, links: [Link<VertexId>; 4], value: Self::T) -> Self;
+
+    #[doc(hidden)]
+    fn links<L: Lock>(&self) -> [Link<VertexId>; 4];
+
+    #[doc(hidden)]
+    fn links_mut<L: Lock>(&mut self) -> &mut [Link<VertexId>; 4];
+
+    #[doc(hidden)]
+    fn to_value<L: Lock>(self) -> Self::T;
+
+    #[doc(hidden)]
+    fn value<L: Lock>(&self) -> &Self::T;
+
+    #[doc(hidden)]
+    fn value_mut<L: Lock>(&mut self) -> &mut Self::T;
+
+    #[doc(hidden)]
+    fn link<L: Lock>(&self, id: TetId, tri: TriId) -> Link<VertexId> {
+        self.links::<Key>()[(id.opp_index(tri) + 1) % 4]
+    }
+
+    #[doc(hidden)]
+    fn link_mut<L: Lock>(&mut self, id: TetId, tri: TriId) -> &mut Link<VertexId> {
+        &mut self.links_mut::<Key>()[(id.opp_index(tri) + 1) % 4]
+    }
+}
+
 /// For simplicial complexes that can have tetrahedrons.
-pub trait HasTets: internal::HasTets + HasTris + RemoveTetHigher + ClearTetsHigher
+pub trait HasTets: HasTris
 where
     Self::Vertex: HigherVertex,
     Self::Edge: HigherEdge,
     Self::Tri: HigherTri,
 {
+    type Tet: Tet;
+
+    #[doc(hidden)]
+    fn from_veft_r<
+        VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
+        EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
+        FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
+        TI: IntoIterator<Item = (TetId, <Self::Tet as Tet>::T)>,
+        FF: Fn() -> <Self::Tri as Tri>::F + Clone,
+        EF: Fn() -> <Self::Edge as Edge>::E + Clone,
+        L: Lock,
+    >(
+        vertices: VI,
+        edges: EI,
+        tris: FI,
+        tets: TI,
+        default_tri_fn: FF,
+        default_edge_fn: EF,
+    ) -> Self;
+
+    #[doc(hidden)]
+    fn into_veft_r<L: Lock>(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>, IntoTris<Self::Tri>, IntoTets<Self::Tet>);
+
+    #[doc(hidden)]
+    fn tets_r<L: Lock>(&self) -> &FnvHashMap<TetId, Self::Tet>;
+
+    #[doc(hidden)]
+    fn tets_r_mut<L: Lock>(&mut self) -> &mut FnvHashMap<TetId, Self::Tet>;
+
+    #[doc(hidden)]
+    fn remove_tet_higher<L: Lock>(&mut self, tet: TetId) where
+        Self: HasTets,
+        Self::Vertex: HigherVertex,
+        Self::Edge: HigherEdge,
+        Self::Tri: HigherTri,
+        ;
+
+    #[doc(hidden)]
+    fn clear_tets_higher<L: Lock>(&mut self) where
+        Self: HasTets,
+        Self::Vertex: HigherVertex,
+        Self::Edge: HigherEdge,
+        Self::Tri: HigherTri,
+        ;
+
     /// Gets the number of tetrahedrons.
     fn num_tets(&self) -> usize {
-        self.tets_r().len()
+        self.tets_r::<Key>().len()
     }
 
     /// Iterates over the tetrahedron ids of this mesh.
     fn tet_ids(&self) -> TetIds<Self::Tet> {
-        self.tets_r().keys()
+        self.tets_r::<Key>().keys()
     }
 
     /// Iterates over the tetrahedrons of this mesh.
     /// Gives (id, value) pairs
     fn tets(&self) -> Tets<Self::Tet> {
-        self.tets_r().iter().map(|(id, t)| (id, t.value()))
+        self.tets_r::<Key>().iter().map(|(id, t)| (id, t.value::<Key>()))
     }
 
     /// Iterates mutably over the tetrahedrons of this mesh.
     /// Gives (id, value) pairs
     fn tets_mut(&mut self) -> TetsMut<Self::Tet> {
-        self.tets_r_mut()
+        self.tets_r_mut::<Key>()
             .iter_mut()
-            .map(|(id, t)| (id, t.value_mut()))
+            .map(|(id, t)| (id, t.value_mut::<Key>()))
     }
 
     /// Gets the value of the tetrahedron at a specific id.
@@ -254,8 +333,8 @@ where
     fn tet<TI: TryInto<TetId>>(&self, id: TI) -> Option<&T!()> {
         id.try_into()
             .ok()
-            .and_then(|id| self.tets_r().get(&id))
-            .map(|t| t.value())
+            .and_then(|id| self.tets_r::<Key>().get(&id))
+            .map(|t| t.value::<Key>())
     }
 
     /// Gets the value of the tetrahedron at a specific id mutably.
@@ -263,8 +342,8 @@ where
     fn tet_mut<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<&mut T!()> {
         id.try_into()
             .ok()
-            .and_then(move |id| self.tets_r_mut().get_mut(&id))
-            .map(|t| t.value_mut())
+            .and_then(move |id| self.tets_r_mut::<Key>().get_mut(&id))
+            .map(|t| t.value_mut::<Key>())
     }
 
     /// Iterates over the opposite triangles of the tetrahedrons that a vertex is part of.
@@ -388,8 +467,8 @@ where
 
         // Can't use entry().or_insert() because that would cause a
         // mutable borrow and an immutable borrow to exist at the same time
-        if let Some(tet) = self.tets_r_mut().get_mut(&id) {
-            Some(std::mem::replace(tet.value_mut(), value))
+        if let Some(tet) = self.tets_r_mut::<Key>().get_mut(&id) {
+            Some(std::mem::replace(tet.value_mut::<Key>(), value))
         } else {
             let mut opps = [Link::dummy(VertexId::dummy); 4];
 
@@ -416,19 +495,19 @@ where
                             .try_into()
                             .ok()
                             .unwrap();
-                        let prev = self.tets_r()[&side].link(side, *tri).prev;
+                        let prev = self.tets_r::<Key>()[&side].link::<Key>(side, *tri).prev;
                         let next = target;
                         let prev_tet = id.with_opp(*tri, prev);
                         let next_tet = id.with_opp(*tri, next);
-                        self.tets_r_mut()
+                        self.tets_r_mut::<Key>()
                             .get_mut(&prev_tet)
                             .unwrap()
-                            .link_mut(prev_tet, *tri)
+                            .link_mut::<Key>(prev_tet, *tri)
                             .next = *opp;
-                        self.tets_r_mut()
+                        self.tets_r_mut::<Key>()
                             .get_mut(&next_tet)
                             .unwrap()
-                            .link_mut(next_tet, *tri)
+                            .link_mut::<Key>(next_tet, *tri)
                             .prev = *opp;
                         (prev, next)
                     };
@@ -436,7 +515,7 @@ where
                 opps[i] = Link::new(prev, next);
             }
 
-            self.tets_r_mut().insert(id, Tet::new(id.0[0], opps, value));
+            self.tets_r_mut::<Key>().insert(id, Tet::new::<Key>(id.0[0], opps, value));
             None
         }
     }
@@ -484,26 +563,26 @@ where
         let id = id.try_into().ok()?;
 
         if self.tet(id).is_some() {
-            self.remove_tet_higher(id);
+            self.remove_tet_higher::<Key>(id);
 
             for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
                 let next = if <<Self::Tet as Tet>::Mwb as Bit>::BOOL {
                     *opp
                 } else {
-                    let tet = &self.tets_r()[&id];
-                    let prev = tet.links()[i].prev;
-                    let next = tet.links()[i].next;
+                    let tet = &self.tets_r::<Key>()[&id];
+                    let prev = tet.links::<Key>()[i].prev;
+                    let next = tet.links::<Key>()[i].next;
                     let prev_tet = id.with_opp(*tri, prev);
                     let next_tet = id.with_opp(*tri, next);
-                    self.tets_r_mut()
+                    self.tets_r_mut::<Key>()
                         .get_mut(&prev_tet)
                         .unwrap()
-                        .link_mut(prev_tet, *tri)
+                        .link_mut::<Key>(prev_tet, *tri)
                         .next = next;
-                    self.tets_r_mut()
+                    self.tets_r_mut::<Key>()
                         .get_mut(&next_tet)
                         .unwrap()
-                        .link_mut(next_tet, *tri)
+                        .link_mut::<Key>(next_tet, *tri)
                         .prev = prev;
                     next
                 };
@@ -517,7 +596,7 @@ where
                 }
             }
 
-            self.tets_r_mut().remove(&id).map(|f| f.to_value())
+            self.tets_r_mut::<Key>().remove(&id).map(|f| f.to_value::<Key>())
         } else {
             None
         }
@@ -559,8 +638,8 @@ where
 
     /// Removes all tetrahedrons from the mesh.
     fn clear_tets(&mut self) {
-        self.clear_tets_higher();
-        self.tets_r_mut().clear();
+        self.clear_tets_higher::<Key>();
+        self.tets_r_mut::<Key>().clear();
 
         // Fix tri-target links
         for (id, tri) in self.tris_r_mut() {
@@ -850,7 +929,7 @@ where
     pub fn next_opp(mut self) -> Self {
         if !<<M::Tet as Tet>::Mwb as Bit>::BOOL {
             let tet = self.tet();
-            self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).next;
+            self.opp.0[1] = self.mesh.tets_r::<Key>()[&tet].link::<Key>(tet, self.tri()).next;
         }
         self
     }
@@ -859,7 +938,7 @@ where
     pub fn prev_opp(mut self) -> Self {
         if !<<M::Tet as Tet>::Mwb as Bit>::BOOL {
             let tet = self.tet();
-            self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).prev;
+            self.opp.0[1] = self.mesh.tets_r::<Key>()[&tet].link::<Key>(tet, self.tri()).prev;
         }
         self
     }
@@ -1098,7 +1177,7 @@ pub(crate) mod internal {
     use fnv::FnvHashMap;
     use typenum::Bit;
 
-    use super::{IntoTets, TetId};
+    use super::{HasTets, IntoTets, TetId};
     use crate::{edge::{EdgeId, IntoEdges, internal::{Edge, HigherEdge, Link}}, tri::{IntoTris, internal::Tri}, vertex::{IntoVertices, internal::Vertex}};
     use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri};
     use crate::tri::TriId;
@@ -1109,11 +1188,11 @@ pub(crate) mod internal {
     #[doc(hidden)]
     macro_rules! impl_tet {
         ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$t> crate::tet::internal::Tet for $name<$t> {
+            impl<$t> crate::tet::Tet for $name<$t> {
                 type T = $t;
                 type Mwb = typenum::B0;
 
-                fn new(
+                fn new<L: crate::private::Lock>(
                     $id: crate::vertex::VertexId,
                     $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
                     $value: Self::T,
@@ -1121,25 +1200,25 @@ pub(crate) mod internal {
                     $new
                 }
 
-                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     self.links
                 }
 
-                fn links_mut(
+                fn links_mut<L: crate::private::Lock>(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     &mut self.links
                 }
 
-                fn to_value(self) -> Self::T {
+                fn to_value<L: crate::private::Lock>(self) -> Self::T {
                     self.value
                 }
 
-                fn value(&self) -> &Self::T {
+                fn value<L: crate::private::Lock>(&self) -> &Self::T {
                     &self.value
                 }
 
-                fn value_mut(&mut self) -> &mut Self::T {
+                fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
                     &mut self.value
                 }
             }
@@ -1150,11 +1229,11 @@ pub(crate) mod internal {
     #[doc(hidden)]
     macro_rules! impl_tet_mwb {
         ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$t> crate::tet::internal::Tet for $name<$t> {
+            impl<$t> crate::tet::Tet for $name<$t> {
                 type T = $t;
                 type Mwb = typenum::B1;
 
-                fn new(
+                fn new<L: crate::private::Lock>(
                     $id: crate::vertex::VertexId,
                     $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
                     $value: Self::T,
@@ -1162,25 +1241,25 @@ pub(crate) mod internal {
                     $new
                 }
 
-                fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     panic!("Cannot get links in \"mwb\" tet")
                 }
 
-                fn links_mut(
+                fn links_mut<L: crate::private::Lock>(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
                     panic!("Cannot get links in \"mwb\" tet")
                 }
 
-                fn to_value(self) -> Self::T {
+                fn to_value<L: crate::private::Lock>(self) -> Self::T {
                     self.value
                 }
 
-                fn value(&self) -> &Self::T {
+                fn value<L: crate::private::Lock>(&self) -> &Self::T {
                     &self.value
                 }
 
-                fn value_mut(&mut self) -> &mut Self::T {
+                fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
                     &mut self.value
                 }
             }
@@ -1190,132 +1269,58 @@ pub(crate) mod internal {
     #[macro_export]
     #[doc(hidden)]
     macro_rules! impl_has_tets {
-        ($name:ident<$v:ident, $e:ident, $f:ident, $t:ident $(, $args:ident)*>, $tet:ident) => {
-            impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*> {
-                type Tet = $tet<$t>;
+        ($tet:ident<$t:ident>) => {
+            type Tet = $tet<$t>;
 
-                fn from_veft_r<
-                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
-                    EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
-                    FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::internal::Tri>::F)>,
-                    TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::internal::Tet>::T)>,
-                >(
-                    vertices: VI,
-                    edges: EI,
-                    tris: FI,
-                    tets: TI,
-                    default_tri_fn: impl Fn() -> <Self::Tri as crate::tri::internal::Tri>::F + Clone,
-                    default_edge_fn: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
-                ) -> Self {
-                    let mut mesh = Self::default();
-                    mesh.extend_vertices_with_ids(vertices);
-                    mesh.extend_edges(edges);
-                    mesh.extend_tris(tris, default_edge_fn.clone());
-                    mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
-                    mesh
-                }
+            fn from_veft_r<
+                VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
+                EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+                FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::internal::Tri>::F)>,
+                TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::Tet>::T)>,
+                FF: Fn() -> <Self::Tri as crate::tri::internal::Tri>::F + Clone,
+                EF: Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
+                L: crate::private::Lock,
+            >(
+                vertices: VI,
+                edges: EI,
+                tris: FI,
+                tets: TI,
+                default_tri_fn: FF,
+                default_edge_fn: EF,
+            ) -> Self {
+                let mut mesh = Self::default();
+                mesh.extend_vertices_with_ids(vertices);
+                mesh.extend_edges(edges);
+                mesh.extend_tris(tris, default_edge_fn.clone());
+                mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
+                mesh
+            }
 
-                fn into_veft_r(self) -> (
-                    crate::vertex::IntoVertices<Self::Vertex>,
-                    crate::edge::IntoEdges<Self::Edge>,
-                    crate::tri::IntoTris<Self::Tri>,
-                    crate::tet::IntoTets<Self::Tet>,
-                ) {
-                    use crate::vertex::internal::Vertex;
-                    use crate::edge::internal::Edge;
-                    use crate::tri::internal::Tri;
-                    use crate::tet::internal::Tet;
-                    (
-                        self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
-                        self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
-                        self.tris.into_iter().map(|(id, f)| (id, f.to_value())),
-                        self.tets.into_iter().map(|(id, t)| (id, t.to_value())),
-                    )
-                }
+            fn into_veft_r<L: crate::private::Lock>(self) -> (
+                crate::vertex::IntoVertices<Self::Vertex>,
+                crate::edge::IntoEdges<Self::Edge>,
+                crate::tri::IntoTris<Self::Tri>,
+                crate::tet::IntoTets<Self::Tet>,
+            ) {
+                use crate::vertex::internal::Vertex;
+                use crate::edge::internal::Edge;
+                use crate::tri::internal::Tri;
+                use crate::tet::Tet;
+                (
+                    self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
+                    self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                    self.tris.into_iter().map(|(id, f)| (id, f.to_value())),
+                    self.tets.into_iter().map(|(id, t)| (id, t.to_value::<crate::private::Key>())),
+                )
+            }
 
-                fn tets_r(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
-                    &self.tets
-                }
+            fn tets_r<L: crate::private::Lock>(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
+                &self.tets
+            }
 
-                fn tets_r_mut(&mut self) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
-                    &mut self.tets
-                }
+            fn tets_r_mut<L: crate::private::Lock>(&mut self) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
+                &mut self.tets
             }
         };
-    }
-
-    /// Tetrahedron storage
-    pub trait Tet {
-        type T;
-        type Mwb: Bit;
-
-        fn new(id: VertexId, links: [Link<VertexId>; 4], value: Self::T) -> Self;
-
-        fn links(&self) -> [Link<VertexId>; 4];
-
-        fn links_mut(&mut self) -> &mut [Link<VertexId>; 4];
-
-        fn to_value(self) -> Self::T;
-
-        fn value(&self) -> &Self::T;
-
-        fn value_mut(&mut self) -> &mut Self::T;
-
-        fn link(&self, id: TetId, tri: TriId) -> Link<VertexId> {
-            self.links()[(id.opp_index(tri) + 1) % 4]
-        }
-
-        fn link_mut(&mut self, id: TetId, tri: TriId) -> &mut Link<VertexId> {
-            &mut self.links_mut()[(id.opp_index(tri) + 1) % 4]
-        }
-    }
-
-    pub trait HasTets: HasTrisIntr
-    where
-        Self::Vertex: HigherVertex,
-        Self::Edge: HigherEdge,
-        Self::Tri: HigherTri,
-    {
-        type Tet: Tet;
-
-        fn from_veft_r<
-            VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
-            EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
-            FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
-            TI: IntoIterator<Item = (TetId, <Self::Tet as Tet>::T)>,
-        >(
-            vertices: VI,
-            edges: EI,
-            tris: FI,
-            tets: TI,
-            default_tri_fn: impl Fn() -> <Self::Tri as Tri>::F + Clone,
-            default_edge_fn: impl Fn() -> <Self::Edge as Edge>::E + Clone,
-        ) -> Self;
-
-        fn into_veft_r(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>, IntoTris<Self::Tri>, IntoTets<Self::Tet>);
-
-        fn tets_r(&self) -> &FnvHashMap<TetId, Self::Tet>;
-
-        fn tets_r_mut(&mut self) -> &mut FnvHashMap<TetId, Self::Tet>;
-    }
-
-    /// Removes higher-order simplexes that contain some tetangle
-    pub trait RemoveTetHigher: HasTets
-    where
-        Self::Vertex: HigherVertex,
-        Self::Edge: HigherEdge,
-        Self::Tri: HigherTri,
-    {
-        fn remove_tet_higher(&mut self, tet: TetId);
-    }
-
-    /// Clears higher-order simplexes
-    pub trait ClearTetsHigher: HasTets
-    where
-        Self::Vertex: HigherVertex,
-        Self::Edge: HigherEdge,
-        Self::Tri: HigherTri,
-    {
-        fn clear_tets_higher(&mut self);
     }
 }

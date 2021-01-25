@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{U2, U3};
 
-use crate::mesh1::internal::HigherVertex;
+use crate::{mesh1::internal::HigherVertex, private::Lock};
 use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
@@ -42,7 +42,6 @@ pub struct ComboMesh3<V, E, F, T> {
 crate::impl_has_vertices!(ComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(ComboMesh3<V, E, F, T>, HigherEdge);
 crate::impl_has_tris!(ComboMesh3<V, E, F, T>, HigherTri);
-crate::impl_has_tets!(ComboMesh3<V, E, F, T>, Tet);
 crate::impl_index_vertex!(ComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
@@ -51,7 +50,13 @@ crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
 impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
+    crate::impl_has_tets!(Tet<T>);
+    
+    fn remove_tet_higher<L: Lock>(&mut self, _: TetId) {}
+
+    fn clear_tets_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
     fn default() -> Self {
@@ -96,7 +101,6 @@ pub struct MwbComboMesh3<V, E, F, T> {
 crate::impl_has_vertices!(MwbComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(MwbComboMesh3<V, E, F, T>, HigherEdge);
 crate::impl_has_tris!(MwbComboMesh3<V, E, F, T>, HigherTri);
-crate::impl_has_tets!(MwbComboMesh3<V, E, F, T>, MwbTet);
 crate::impl_index_vertex!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
@@ -105,7 +109,13 @@ crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
 impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {
+    crate::impl_has_tets!(MwbTet<T>);
+
+    fn remove_tet_higher<L: Lock>(&mut self, _: TetId) {}
+
+    fn clear_tets_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E, F, T> Default for MwbComboMesh3<V, E, F, T> {
     fn default() -> Self {
@@ -130,7 +140,6 @@ mod internal {
     use super::{ComboMesh3, MwbComboMesh3};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
-    use crate::tet::internal::{ClearTetsHigher, RemoveTetHigher};
     use crate::tet::{HasTets, TetId};
     use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
     use crate::tri::{HasTris, TriId};
@@ -232,14 +241,6 @@ mod internal {
         }
     }
 
-    impl<V, E, F, T> RemoveTetHigher for ComboMesh3<V, E, F, T> {
-        fn remove_tet_higher(&mut self, _: TetId) {}
-    }
-
-    impl<V, E, F, T> ClearTetsHigher for ComboMesh3<V, E, F, T> {
-        fn clear_tets_higher(&mut self) {}
-    }
-
     impl<V, E, F, T> RemoveVertexHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -287,14 +288,6 @@ mod internal {
         fn clear_tris_higher(&mut self) {
             self.tets.clear();
         }
-    }
-
-    impl<V, E, F, T> RemoveTetHigher for MwbComboMesh3<V, E, F, T> {
-        fn remove_tet_higher(&mut self, _: TetId) {}
-    }
-
-    impl<V, E, F, T> ClearTetsHigher for MwbComboMesh3<V, E, F, T> {
-        fn clear_tets_higher(&mut self) {}
     }
 }
 

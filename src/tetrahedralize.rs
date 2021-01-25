@@ -1,4 +1,4 @@
-use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::{HasTets, internal::Tet}, tri::{HasTris, internal::{HigherTri, Tri}}, vertex::{HasPosition3D, HasVertices, Position, internal::{HigherVertex, Vertex}}};
+use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::{HasTets, Tet}, tri::{HasTris, internal::{HigherTri, Tri}}, vertex::{HasPosition3D, HasVertices, Position, internal::{HigherVertex, Vertex}}};
 use typenum::B1;
 use nalgebra::{Point3, dimension::U3};
 
