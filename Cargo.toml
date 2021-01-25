@@ -8,10 +8,11 @@ edition = "2018"
 
 [dependencies]
 idmap = "0.2.19"
-nalgebra = "0.24.0"
+nalgebra = { version = "0.24.0", features = ["alga"] }
+alga = "0.9.3"
 typenum = "1.12.0"
 fnv = "1.0.7"
 serde = { package = "serde", version = "1.0.117", optional = true, features = ["derive"] }
 
 [features]
-serde_ = ["serde", "idmap/serde"]
+serialize = ["serde", "idmap/serde"]

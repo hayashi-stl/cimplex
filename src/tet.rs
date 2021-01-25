@@ -175,6 +175,12 @@ impl TetId {
 pub type TetIds<'a, TT> = hash_map::Keys<'a, TetId, TT>;
 
 /// Iterator over the tetrahedrons of a mesh.
+pub type IntoTets<TT> = Map<
+    hash_map::IntoIter<TetId, TT>,
+    fn((TetId, TT)) -> (TetId, <TT as Tet>::T),
+>;
+
+/// Iterator over the tetrahedrons of a mesh.
 pub type Tets<'a, TT> = Map<
     hash_map::Iter<'a, TetId, TT>,
     for<'b> fn((&'b TetId, &'b TT)) -> (&'b TetId, &'b <TT as Tet>::T),
@@ -322,7 +328,7 @@ where
     /// The triangle must exist.
     fn tri_vertex_opp(&self, tri: TriId) -> Option<VertexId>
     where
-        Self::Tet: Tet<Manifold = typenum::B1>,
+        Self::Tet: Tet<Mwb = typenum::B1>,
     {
         let opp = self.tris_r()[&tri].tet_opp();
         if opp != tri.0[0] {
@@ -345,7 +351,7 @@ where
     /// The triangle must exist.
     fn tri_tet(&self, tri: TriId) -> Option<TetId>
     where
-        Self::Tet: Tet<Manifold = typenum::B1>,
+        Self::Tet: Tet<Mwb = typenum::B1>,
     {
         Some(TetId::from_valid([
             tri.0[0],
@@ -360,7 +366,7 @@ where
     /// Adds in the required edges and triangles if they aren't there already.
     /// Returns the previous value of the tetrahedron, if there was one.
     ///
-    /// In case of a "manifold" tet mesh, any tetrahedrons that were already
+    /// In case of a mwb tet mesh, any tetrahedrons that were already
     /// attached to an oriented triangle of the new tetrahedron get removed, along with their triangles and edges.
     ///
     /// # Panics
@@ -391,9 +397,9 @@ where
                 let target = self.tris_r()[tri].tet_opp();
 
                 let (prev, next) =
-                    if target == tri.0[0] || <<Self::Tet as Tet>::Manifold as Bit>::BOOL {
+                    if target == tri.0[0] || <<Self::Tet as Tet>::Mwb as Bit>::BOOL {
                         if target != tri.0[0] {
-                            // "Manifold" condition requires ≤1 tetrahedron per oriented triangle!
+                            // "Mwb" condition requires ≤1 tetrahedron per oriented triangle!
                             self.remove_tet_keep_tris(TetId::from_valid([
                                 tri.0[0], tri.0[1], tri.0[2], target,
                             ]));
@@ -481,7 +487,7 @@ where
             self.remove_tet_higher(id);
 
             for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                let next = if <<Self::Tet as Tet>::Manifold as Bit>::BOOL {
+                let next = if <<Self::Tet as Tet>::Mwb as Bit>::BOOL {
                     *opp
                 } else {
                     let tet = &self.tets_r()[&id];
@@ -767,7 +773,7 @@ where
 
     /// Set the current tetrahedron to one that contains the twin
     /// of the current triangle. Useful for getting the
-    /// other tetrahedron of the unoriented triangle in a manifold.
+    /// other tetrahedron of the unoriented triangle in a mwb.
     pub fn on_twin_tri(self) -> Option<Self> {
         self.tri_walker().twin().and_then(|w| w.tet_walker())
     }
@@ -842,7 +848,7 @@ where
 
     /// Sets the current opposite vertex to the next one with the same triangle.
     pub fn next_opp(mut self) -> Self {
-        if !<<M::Tet as Tet>::Manifold as Bit>::BOOL {
+        if !<<M::Tet as Tet>::Mwb as Bit>::BOOL {
             let tet = self.tet();
             self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).next;
         }
@@ -851,7 +857,7 @@ where
 
     /// Sets the current opposite vertex to the previous one with the same triangle.
     pub fn prev_opp(mut self) -> Self {
-        if !<<M::Tet as Tet>::Manifold as Bit>::BOOL {
+        if !<<M::Tet as Tet>::Mwb as Bit>::BOOL {
             let tet = self.tet();
             self.opp.0[1] = self.mesh.tets_r()[&tet].link(tet, self.tri()).prev;
         }
@@ -1078,13 +1084,13 @@ where
     Self::Tri: HigherTri,
 {
     /// Gets the positions of the vertices of an tetrahedron
-    fn tet_positions<TI: TryInto<TetId>>(&self, tet: TI) -> Option<[HasPositionPoint<Self>; 4]> {
-        let tet = tet.try_into().ok()?;
-        let v0 = self.position(tet.0[0])?;
-        let v1 = self.position(tet.0[1])?;
-        let v2 = self.position(tet.0[2])?;
-        let v3 = self.position(tet.0[3])?;
-        Some([v0, v1, v2, v3])
+    fn tet_positions<TI: TryInto<TetId>>(&self, tet: TI) -> [HasPositionPoint<Self>; 4] {
+        let tet = tet.try_into().ok().unwrap();
+        let v0 = self.position(tet.0[0]);
+        let v1 = self.position(tet.0[1]);
+        let v2 = self.position(tet.0[2]);
+        let v3 = self.position(tet.0[3]);
+        [v0, v1, v2, v3]
     }
 }
 
@@ -1092,8 +1098,8 @@ pub(crate) mod internal {
     use fnv::FnvHashMap;
     use typenum::Bit;
 
-    use super::TetId;
-    use crate::edge::internal::{HigherEdge, Link};
+    use super::{IntoTets, TetId};
+    use crate::{edge::{EdgeId, IntoEdges, internal::{Edge, HigherEdge, Link}}, tri::{IntoTris, internal::Tri}, vertex::{IntoVertices, internal::Vertex}};
     use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri};
     use crate::tri::TriId;
     use crate::vertex::internal::HigherVertex;
@@ -1105,7 +1111,7 @@ pub(crate) mod internal {
         ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$t> crate::tet::internal::Tet for $name<$t> {
                 type T = $t;
-                type Manifold = typenum::B0;
+                type Mwb = typenum::B0;
 
                 fn new(
                     $id: crate::vertex::VertexId,
@@ -1142,11 +1148,11 @@ pub(crate) mod internal {
 
     #[macro_export]
     #[doc(hidden)]
-    macro_rules! impl_tet_manifold {
+    macro_rules! impl_tet_mwb {
         ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$t> crate::tet::internal::Tet for $name<$t> {
                 type T = $t;
-                type Manifold = typenum::B1;
+                type Mwb = typenum::B1;
 
                 fn new(
                     $id: crate::vertex::VertexId,
@@ -1157,13 +1163,13 @@ pub(crate) mod internal {
                 }
 
                 fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    panic!("Cannot get links in \"manifold\" tet")
+                    panic!("Cannot get links in \"mwb\" tet")
                 }
 
                 fn links_mut(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    panic!("Cannot get links in \"manifold\" tet")
+                    panic!("Cannot get links in \"mwb\" tet")
                 }
 
                 fn to_value(self) -> Self::T {
@@ -1188,6 +1194,45 @@ pub(crate) mod internal {
             impl<$v, $e, $f, $t $(, $args)*> crate::tet::internal::HasTets for $name<$v, $e, $f, $t $(, $args)*> {
                 type Tet = $tet<$t>;
 
+                fn from_veft_r<
+                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
+                    EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+                    FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::internal::Tri>::F)>,
+                    TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::internal::Tet>::T)>,
+                >(
+                    vertices: VI,
+                    edges: EI,
+                    tris: FI,
+                    tets: TI,
+                    default_tri_fn: impl Fn() -> <Self::Tri as crate::tri::internal::Tri>::F + Clone,
+                    default_edge_fn: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
+                ) -> Self {
+                    let mut mesh = Self::default();
+                    mesh.extend_vertices_with_ids(vertices);
+                    mesh.extend_edges(edges);
+                    mesh.extend_tris(tris, default_edge_fn.clone());
+                    mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
+                    mesh
+                }
+
+                fn into_veft_r(self) -> (
+                    crate::vertex::IntoVertices<Self::Vertex>,
+                    crate::edge::IntoEdges<Self::Edge>,
+                    crate::tri::IntoTris<Self::Tri>,
+                    crate::tet::IntoTets<Self::Tet>,
+                ) {
+                    use crate::vertex::internal::Vertex;
+                    use crate::edge::internal::Edge;
+                    use crate::tri::internal::Tri;
+                    use crate::tet::internal::Tet;
+                    (
+                        self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
+                        self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                        self.tris.into_iter().map(|(id, f)| (id, f.to_value())),
+                        self.tets.into_iter().map(|(id, t)| (id, t.to_value())),
+                    )
+                }
+
                 fn tets_r(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
                     &self.tets
                 }
@@ -1202,7 +1247,7 @@ pub(crate) mod internal {
     /// Tetrahedron storage
     pub trait Tet {
         type T;
-        type Manifold: Bit;
+        type Mwb: Bit;
 
         fn new(id: VertexId, links: [Link<VertexId>; 4], value: Self::T) -> Self;
 
@@ -1232,6 +1277,22 @@ pub(crate) mod internal {
         Self::Tri: HigherTri,
     {
         type Tet: Tet;
+
+        fn from_veft_r<
+            VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
+            EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
+            FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
+            TI: IntoIterator<Item = (TetId, <Self::Tet as Tet>::T)>,
+        >(
+            vertices: VI,
+            edges: EI,
+            tris: FI,
+            tets: TI,
+            default_tri_fn: impl Fn() -> <Self::Tri as Tri>::F + Clone,
+            default_edge_fn: impl Fn() -> <Self::Edge as Edge>::E + Clone,
+        ) -> Self;
+
+        fn into_veft_r(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>, IntoTris<Self::Tri>, IntoTets<Self::Tet>);
 
         fn tets_r(&self) -> &FnvHashMap<TetId, Self::Tet>;
 

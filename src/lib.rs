@@ -7,6 +7,7 @@ pub mod mesh3;
 pub mod tet;
 pub mod tri;
 pub mod vertex;
+pub mod tetrahedralize;
 
 use nalgebra::Point;
 type PtN<D> = Point<f64, D>;

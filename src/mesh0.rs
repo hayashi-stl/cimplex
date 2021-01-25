@@ -108,3 +108,22 @@ mod internal {
         fn clear_vertices_higher(&mut self) {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Point2;
+    use crate::vertex::HasPosition;
+
+    #[test]
+    fn test_bounding_box() {
+        let mut mesh = ComboMesh0::new();
+        mesh.extend_vertices(vec![
+            Point2::new(0.0, 1.0),
+            Point2::new(-1.0, 2.0),
+            Point2::new(5.0, 3.0)
+        ]);
+
+        assert_eq!(mesh.bounding_box(), Some([Point2::new(-1.0, 1.0), Point2::new(5.0, 3.0)]));
+    }
+}

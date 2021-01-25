@@ -77,6 +77,12 @@ impl EdgeId {
 pub type EdgeIds<'a, ET> = hash_map::Keys<'a, EdgeId, ET>;
 
 /// Iterator over the edges of a mesh.
+pub type IntoEdges<ET> = Map<
+    hash_map::IntoIter<EdgeId, ET>,
+    fn((EdgeId, ET)) -> (EdgeId, <ET as Edge>::E),
+>;
+
+/// Iterator over the edges of a mesh.
 pub type Edges<'a, ET> = Map<
     hash_map::Iter<'a, EdgeId, ET>,
     for<'b> fn((&'b EdgeId, &'b ET)) -> (&'b EdgeId, &'b <ET as Edge>::E),
@@ -171,7 +177,7 @@ where
     /// The vertex must exist.
     fn vertex_target(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>,
+        Self::Edge: Edge<Mwb = typenum::B1>,
     {
         let target = self.vertices_r()[vertex].target();
         if target != vertex {
@@ -192,7 +198,7 @@ where
     /// The vertex must exist.
     fn vertex_edge_out(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>,
+        Self::Edge: Edge<Mwb = typenum::B1>,
     {
         Some(EdgeId([vertex, self.vertex_target(vertex)?]))
     }
@@ -220,7 +226,7 @@ where
     /// The vertex must exist.
     fn vertex_source(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>,
+        Self::Edge: Edge<Mwb = typenum::B1>,
     {
         let source = self.vertices_r()[vertex].source();
         if source != vertex {
@@ -241,7 +247,7 @@ where
     /// The vertex must exist.
     fn vertex_edge_in(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Manifold = typenum::B1>,
+        Self::Edge: Edge<Mwb = typenum::B1>,
     {
         Some(EdgeId([self.vertex_source(vertex)?, vertex]))
     }
@@ -263,7 +269,7 @@ where
             let target = self.vertices_r()[id.0[0]].target();
 
             let (prev_target, next_target) =
-                if target == id.0[0] || <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+                if target == id.0[0] || <<Self::Edge as Edge>::Mwb as Bit>::BOOL {
                     if target != id.0[0] {
                         self.remove_edge(EdgeId([id.0[0], target]));
                     }
@@ -290,7 +296,7 @@ where
             let source = self.vertices_r()[id.0[1]].source();
 
             let (prev_source, next_source) =
-                if source == id.0[1] || <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+                if source == id.0[1] || <<Self::Edge as Edge>::Mwb as Bit>::BOOL {
                     if source != id.0[1] {
                         self.remove_edge([source, id.0[1]]);
                     }
@@ -349,7 +355,7 @@ where
         if self.edge(id).is_some() {
             self.remove_edge_higher(id);
 
-            let (next_source, next_target) = if <<Self::Edge as Edge>::Manifold as Bit>::BOOL {
+            let (next_source, next_target) = if <<Self::Edge as Edge>::Mwb as Bit>::BOOL {
                 (id.0[0], id.0[1])
             } else {
                 let edge = &self.edges_r()[&id];
@@ -462,7 +468,7 @@ where
 ///         prev          <───────────────        next_in
 ///  @ <─────────────── @ ───────────────> @ <────────────── @
 ///    ───────────────> │r  · (edge)· · · /^ ──────────────>
-///       backward      │ \ · · · · · ·  / │     forward
+///       source_in     │ \ · · · · · ·  / │     target_out
 ///                     │  \  · · · · · /  │        
 ///                next │   \tri_walker/   │ prev_in
 ///                     │    \  · · · /    │      
@@ -474,6 +480,8 @@ where
 /// ```
 /// The edges that `next` and `prev` reference is in no particular order.
 /// The same is true for `next_in` and `prev_in`.
+/// The edges that `source_in` and `target_out` reference could
+/// also be the current edge's twin.
 #[derive(Debug)]
 pub struct EdgeWalker<'a, M: ?Sized>
 where
@@ -582,7 +590,7 @@ where
 
     /// Sets the current edge to the next one with the same source vertex.
     pub fn next(mut self) -> Self {
-        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+        if !<<M::Edge as Edge>::Mwb as Bit>::BOOL {
             self.edge = self
                 .edge
                 .with_target(self.mesh.edges_r()[&self.edge].links()[0].next);
@@ -592,7 +600,7 @@ where
 
     /// Sets the current edge to the previous one with the same source vertex.
     pub fn prev(mut self) -> Self {
-        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+        if !<<M::Edge as Edge>::Mwb as Bit>::BOOL {
             self.edge = self
                 .edge
                 .with_target(self.mesh.edges_r()[&self.edge].links()[0].prev);
@@ -602,7 +610,7 @@ where
 
     /// Sets the current edge to the next one with the same target vertex.
     pub fn next_in(mut self) -> Self {
-        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+        if !<<M::Edge as Edge>::Mwb as Bit>::BOOL {
             self.edge = self
                 .edge
                 .with_source(self.mesh.edges_r()[&self.edge].links()[1].next);
@@ -612,7 +620,7 @@ where
 
     /// Sets the current edge to the previous one with the same target vertex.
     pub fn prev_in(mut self) -> Self {
-        if !<<M::Edge as Edge>::Manifold as Bit>::BOOL {
+        if !<<M::Edge as Edge>::Mwb as Bit>::BOOL {
             self.edge = self
                 .edge
                 .with_source(self.mesh.edges_r()[&self.edge].links()[1].prev);
@@ -761,18 +769,19 @@ where
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
     Self::Vertex: HigherVertex,
 {
-    /// Gets the positions of the vertices of an edge
-    fn edge_positions<EI: TryInto<EdgeId>>(&self, edge: EI) -> Option<[HasPositionPoint<Self>; 2]> {
-        let edge = edge.try_into().ok()?;
-        let v0 = self.position(edge.0[0])?;
-        let v1 = self.position(edge.0[1])?;
-        Some([v0, v1])
+    /// Gets the positions of the vertices of an edge.
+    /// Assumes the edge exists.
+    fn edge_positions<EI: TryInto<EdgeId>>(&self, edge: EI) -> [HasPositionPoint<Self>; 2] {
+        let edge = edge.try_into().ok().unwrap();
+        let v0 = self.position(edge.0[0]);
+        let v1 = self.position(edge.0[1]);
+        [v0, v1]
     }
 }
 
 pub(crate) mod internal {
-    use super::EdgeId;
-    use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
+    use super::{EdgeId, IntoEdges};
+    use crate::vertex::{IntoVertices, internal::{HasVertices as HasVerticesIntr, HigherVertex, Vertex}};
     use crate::vertex::VertexId;
     use fnv::FnvHashMap;
     #[cfg(feature = "serialize")]
@@ -785,7 +794,7 @@ pub(crate) mod internal {
         ($name:ident<$e:ident>, new |$id:ident, $link:ident, $value:ident| $new:expr) => {
             impl<$e> crate::edge::internal::Edge for $name<$e> {
                 type E = $e;
-                type Manifold = typenum::B0;
+                type Mwb = typenum::B0;
 
                 fn new(
                     $id: VertexId,
@@ -822,11 +831,11 @@ pub(crate) mod internal {
 
     #[macro_export]
     #[doc(hidden)]
-    macro_rules! impl_edge_manifold {
+    macro_rules! impl_edge_mwb {
         ($name:ident<$e:ident>, new |$id:ident, $link:ident, $value:ident| $new:expr) => {
             impl<$e> crate::edge::internal::Edge for $name<$e> {
                 type E = $e;
-                type Manifold = typenum::B1;
+                type Mwb = typenum::B1;
 
                 fn new(
                     $id: VertexId,
@@ -837,13 +846,13 @@ pub(crate) mod internal {
                 }
 
                 fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
-                    panic!("Cannot get links in \"manifold\" edge")
+                    panic!("Cannot get links in \"mwb\" edge")
                 }
 
                 fn links_mut(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 2] {
-                    panic!("Cannot get links in \"manifold\" edge")
+                    panic!("Cannot get links in \"mwb\" edge")
                 }
 
                 fn to_value(self) -> Self::E {
@@ -884,6 +893,28 @@ pub(crate) mod internal {
             impl<$v, $e $(, $args)*> crate::edge::internal::HasEdges for $name<$v, $e $(, $args)*> {
                 type Edge = $edge<$e>;
 
+                fn from_ve_r<
+                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
+                    EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+                >(vertices: VI, edges: EI) -> Self {
+                    let mut mesh = Self::default();
+                    mesh.extend_vertices_with_ids(vertices);
+                    mesh.extend_edges(edges);
+                    mesh
+                }
+
+                fn into_ve_r(self) -> (
+                    crate::vertex::IntoVertices<Self::Vertex>,
+                    crate::edge::IntoEdges<Self::Edge>,
+                ) {
+                    use crate::vertex::internal::Vertex;
+                    use crate::edge::internal::Edge;
+                    (
+                        self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
+                        self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                    )
+                }
+
                 fn edges_r(&self) -> &FnvHashMap<crate::edge::EdgeId, Self::Edge> {
                     &self.edges
                 }
@@ -914,7 +945,7 @@ pub(crate) mod internal {
 
     pub trait Edge {
         type E;
-        type Manifold: Bit;
+        type Mwb: Bit;
 
         /// Takes the vertex id of the source, in case
         /// the edge needs to store a dummy value for the opposite vertex
@@ -924,7 +955,7 @@ pub(crate) mod internal {
         /// Target link, then source link
         fn links(&self) -> [Link<VertexId>; 2];
 
-        /// Panics for edges in "manifold" edge meshes
+        /// Panics for edges in mwb edge meshes
         fn links_mut(&mut self) -> &mut [Link<VertexId>; 2];
 
         fn to_value(self) -> Self::E;
@@ -945,6 +976,13 @@ pub(crate) mod internal {
         Self::Vertex: HigherVertex,
     {
         type Edge: Edge;
+
+        fn from_ve_r<
+            VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
+            EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
+        >(vertices: VI, edges: EI) -> Self;
+
+        fn into_ve_r(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>);
 
         fn edges_r(&self) -> &FnvHashMap<EdgeId, Self::Edge>;
 

@@ -6,14 +6,25 @@ use nalgebra::{DefaultAllocator, DimName, Point};
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
+use alga::general::{MeetSemilattice, JoinSemilattice};
+use nalgebra::dimension::U3;
+use typenum::B1;
 
 use internal::{ClearVerticesHigher, HasVertices as HasVerticesIntr, RemoveVertexHigher, Vertex};
+
+use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::HasTets, tri::{HasTris, internal::{HigherTri, Tri}}};
+use crate::edge::internal::HasEdges as HasEdgesIntr;
+use crate::tri::internal::HasTris as HasTrisIntr;
+use crate::tet::internal::{Tet, HasTets as HasTetsIntr};
+
+use self::internal::HigherVertex;
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
 pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
 pub(crate) type HasPositionDim<P> =
     <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
 pub(crate) type HasPositionPoint<P> = Point<f64, HasPositionDim<P>>;
+pub(crate) type HasPositionRest<P> = <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Rest;
 
 /// For values that can represent a position.
 pub trait Position
@@ -22,9 +33,13 @@ where
 {
     /// The number of dimensions in the position
     type Dim: DimName;
+    /// The rest of the type
+    type Rest;
 
     /// The actual position represented
     fn position(&self) -> PositionPoint<Self>;
+
+    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self;
 }
 
 /// Not a blanket implementation because
@@ -34,9 +49,14 @@ where
     DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
+    type Rest = ();
 
     fn position(&self) -> PositionPoint<Self> {
         self.clone()
+    }
+
+    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self {
+        point
     }
 }
 
@@ -45,9 +65,14 @@ where
     DefaultAllocator: Allocator<f64, D>,
 {
     type Dim = D;
+    type Rest = V;
 
     fn position(&self) -> PositionPoint<Self> {
         self.0.clone()
+    }
+
+    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self {
+        (point, rest)
     }
 }
 
@@ -69,6 +94,12 @@ impl VertexId {
 
 /// Iterator over the vertex ids of a mesh.
 pub type VertexIds<'a, VT> = idmap::Keys<'a, VertexId, VT, DenseEntryTable<VertexId, VT>>;
+
+/// Iterator over the vertices of a mesh.
+pub type IntoVertices<VT> = Map<
+    <idmap::OrderedIdMap<VertexId, VT> as IntoIterator>::IntoIter,
+    fn((VertexId, VT)) -> (VertexId, <VT as Vertex>::V),
+>;
 
 /// Iterator over the vertices of a mesh.
 pub type Vertices<'a, VT> = Map<
@@ -137,12 +168,28 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
         id
     }
 
+    /// Adds a vertex with a specific id.
+    /// Returns the value that was previously there, if any
+    fn add_vertex_with_id(&mut self, id: VertexId, value: V!()) -> Option<V!()> {
+        *self.next_vertex_id_mut() = (id.0 + 1).max(self.next_vertex_id());
+        self.vertices_r_mut().insert(id, <Self::Vertex as Vertex>::new(id, value))
+            .map(|vertex| vertex.to_value())
+    }
+
     /// Extends the vertex list with an iterator and returns a `Vec`
     /// of the vertex ids that are created in order.
     fn extend_vertices<I: IntoIterator<Item = V!()>>(&mut self, iter: I) -> Vec<VertexId> {
         iter.into_iter()
             .map(|value| self.add_vertex(value))
             .collect()
+    }
+
+    /// Extends the vertex list with an iterator over (id, value) pairs
+    fn extend_vertices_with_ids<I: IntoIterator<Item = (VertexId, V!())>>(&mut self, iter: I) {
+        iter.into_iter()
+            .for_each(|(id, value)| {
+                self.add_vertex_with_id(id, value);
+            });
     }
 
     /// Removes a vertex from the mesh.
@@ -184,11 +231,74 @@ where
     <Self::Vertex as Vertex>::V: Position,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {
-    /// Gets the position of a vertex.
-    fn position(&self, vertex: VertexId) -> Option<HasPositionPoint<Self>> {
-        self.vertex(vertex).map(|v| v.position())
+    /// Gets the position of a vertex. Assumes the vertex exists.
+    fn position(&self, vertex: VertexId) -> HasPositionPoint<Self> {
+        self.vertex(vertex).unwrap().position()
+    }
+
+    /// Adds a vertex with some position and the rest of the vertex value
+    fn add_with_position(&mut self, position: HasPositionPoint<Self>, rest: HasPositionRest<Self>) -> VertexId {
+        self.add_vertex(<<Self::Vertex as Vertex>::V as Position>::with_position(position, rest))
+    }
+
+    /// Gets the bounding box of the mesh
+    /// as the array [mininum coordinates, maximum coordinates]
+    fn bounding_box(&self) -> Option<[HasPositionPoint<Self>; 2]> {
+        self.vertex_ids().map(|v| self.position(*v))
+            .fold(None, |acc, pos| {
+                if let Some([min, max]) = acc {
+                    let (min, max) = (min.meet(&pos), max.join(&pos));
+                    Some([min, max])
+                } else {
+                    Some([pos.clone(), pos])
+                }
+            })
     }
 }
+
+impl<M> HasPosition for M
+where
+    M: HasVertices,
+    <Self::Vertex as Vertex>::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+{}
+
+/// For 3D concrete simplicial complexes
+pub trait HasPosition3D: HasPosition
+where
+    <Self::Vertex as Vertex>::V: Position<Dim = U3>,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+{
+    /// Turns this mesh into a Delaunay tetrahedralization of its vertices
+    fn delaunay_tets<M>(self,
+        tet_value_fn: impl Fn() -> <<M as HasTetsIntr>::Tet as Tet>::T,
+        tri_value_fn: impl Fn() -> <<M as HasTrisIntr>::Tri as Tri>::F + Clone,
+        edge_value_fn: impl Fn() -> <<M as HasEdgesIntr>::Edge as Edge>::E + Clone,
+        v_rest_fn: impl Fn() -> <<Self::Vertex as Vertex>::V as Position>::Rest,
+    ) -> M where
+        Self: Sized,
+        M: HasVertices,
+        <M as HasVerticesIntr>::Vertex: Vertex<V = V!()> + HigherVertex,
+        M: HasEdges,
+        <M as HasEdgesIntr>::Edge: HigherEdge,
+        M: HasTris,
+        <M as HasTrisIntr>::Tri: HigherTri,
+        M: HasTets,
+        <M as HasTetsIntr>::Tet: Tet<Mwb = B1>,
+    {
+        let mesh = M::from_veft_r(self.into_v_r(), vec![], vec![], vec![],
+            tri_value_fn.clone(), edge_value_fn.clone());
+
+        crate::tetrahedralize::delaunay_tets(mesh, tet_value_fn, tri_value_fn, edge_value_fn, v_rest_fn)
+    }
+}
+
+impl<M> HasPosition3D for M
+where
+    M: HasVertices,
+    <Self::Vertex as Vertex>::V: Position<Dim = U3>,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+{}
 
 #[macro_export]
 #[doc(hidden)]
@@ -211,7 +321,7 @@ macro_rules! impl_index_vertex {
 }
 
 pub(crate) mod internal {
-    use super::{IdType, VertexId};
+    use super::{IdType, IntoVertices, VertexId};
     use idmap::OrderedIdMap;
 
     #[macro_export]
@@ -271,6 +381,19 @@ pub(crate) mod internal {
             impl<$v $(, $args)*> crate::vertex::internal::HasVertices for $name<$v $(, $args)*> {
                 type Vertex = $vertex<$v>;
 
+                fn from_v_r<
+                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>
+                >(vertices: VI) -> Self {
+                    let mut mesh = Self::default();
+                    mesh.extend_vertices_with_ids(vertices);
+                    mesh
+                }
+
+                fn into_v_r(self) -> crate::vertex::IntoVertices<Self::Vertex> {
+                    use crate::vertex::internal::Vertex;
+                    self.vertices.into_iter().map(|(id, v)| (id, v.to_value()))
+                }
+
                 fn vertices_r(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
                     &self.vertices
                 }
@@ -316,6 +439,10 @@ pub(crate) mod internal {
 
     pub trait HasVertices {
         type Vertex: Vertex;
+
+        fn from_v_r<VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>>(vertices: VI) -> Self;
+
+        fn into_v_r(self) -> IntoVertices<Self::Vertex>;
 
         fn vertices_r(&self) -> &OrderedIdMap<VertexId, Self::Vertex>;
 

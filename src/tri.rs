@@ -114,6 +114,12 @@ impl TriId {
 pub type TriIds<'a, FT> = hash_map::Keys<'a, TriId, FT>;
 
 /// Iterator over the triangles of a mesh.
+pub type IntoTris<FT> = Map<
+    hash_map::IntoIter<TriId, FT>,
+    fn((TriId, FT)) -> (TriId, <FT as Tri>::F),
+>;
+
+/// Iterator over the triangles of a mesh.
 pub type Tris<'a, FT> = Map<
     hash_map::Iter<'a, TriId, FT>,
     for<'b> fn((&'b TriId, &'b FT)) -> (&'b TriId, &'b <FT as Tri>::F),
@@ -234,7 +240,7 @@ where
     /// The edge must exist.
     fn edge_vertex_opp(&self, edge: EdgeId) -> Option<VertexId>
     where
-        Self::Tri: Tri<Manifold = typenum::B1>,
+        Self::Tri: Tri<Mwb = typenum::B1>,
     {
         let opp = self.edges_r()[&edge].tri_opp();
         if opp != edge.0[0] {
@@ -257,7 +263,7 @@ where
     /// The edge must exist.
     fn edge_tri(&self, edge: EdgeId) -> Option<TriId>
     where
-        Self::Tri: Tri<Manifold = typenum::B1>,
+        Self::Tri: Tri<Mwb = typenum::B1>,
     {
         Some(TriId::from_valid([
             edge.0[0],
@@ -271,7 +277,7 @@ where
     /// Adds in the required edges if they aren't there already.
     /// Returns the previous value of the triangle, if there was one.
     ///
-    /// In case of a "manifold" tri mesh, any triangles that were already
+    /// In case of a mwb tri mesh, any triangles that were already
     /// attached to an oriented edge of the new triangle get removed, along with their edges.
     ///
     /// # Panics
@@ -301,9 +307,9 @@ where
                 let target = self.edges_r()[edge].tri_opp();
 
                 let (prev, next) =
-                    if target == edge.0[0] || <<Self::Tri as Tri>::Manifold as Bit>::BOOL {
+                    if target == edge.0[0] || <<Self::Tri as Tri>::Mwb as Bit>::BOOL {
                         if target != edge.0[0] {
-                            // "Manifold" condition requires ≤1 triangle per oriented edge!
+                            // "Mwb" condition requires ≤1 triangle per oriented edge!
                             self.remove_tri_keep_edges(TriId::from_valid([
                                 edge.0[0], edge.0[1], target,
                             ]));
@@ -386,7 +392,7 @@ where
             self.remove_tri_higher(id);
 
             for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
-                let next = if <<Self::Tri as Tri>::Manifold as Bit>::BOOL {
+                let next = if <<Self::Tri as Tri>::Mwb as Bit>::BOOL {
                     *opp
                 } else {
                     let tri = &self.tris_r()[&id];
@@ -624,7 +630,7 @@ where
 
     /// Set the current triangle to one that contains the twin
     /// of the current edge. Useful for getting the
-    /// other triangle of the undirected edge in a manifold.
+    /// other triangle of the undirected edge in a mwb.
     pub fn on_twin_edge(self) -> Option<Self> {
         self.edge_walker().twin().and_then(|w| w.tri_walker())
     }
@@ -647,7 +653,7 @@ where
 
     /// Sets the current opposite vertex to the next one with the same edge.
     pub fn next_opp(mut self) -> Self {
-        if !<<M::Tri as Tri>::Manifold as Bit>::BOOL {
+        if !<<M::Tri as Tri>::Mwb as Bit>::BOOL {
             let tri = self.tri();
             self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).next;
         }
@@ -656,7 +662,7 @@ where
 
     /// Sets the current opposite vertex to the previous one with the same edge.
     pub fn prev_opp(mut self) -> Self {
-        if !<<M::Tri as Tri>::Manifold as Bit>::BOOL {
+        if !<<M::Tri as Tri>::Mwb as Bit>::BOOL {
             let tri = self.tri();
             self.opp = self.mesh.tris_r()[&tri].link(tri, self.edge).prev;
         }
@@ -804,13 +810,14 @@ where
     Self::Vertex: HigherVertex,
     Self::Edge: HigherEdge,
 {
-    /// Gets the positions of the vertices of an triangle
-    fn tri_positions<FI: TryInto<TriId>>(&self, tri: FI) -> Option<[HasPositionPoint<Self>; 3]> {
-        let tri = tri.try_into().ok()?;
-        let v0 = self.position(tri.0[0])?;
-        let v1 = self.position(tri.0[1])?;
-        let v2 = self.position(tri.0[2])?;
-        Some([v0, v1, v2])
+    /// Gets the positions of the vertices of an triangle.
+    /// Assumes the triangle exists.
+    fn tri_positions<FI: TryInto<TriId>>(&self, tri: FI) -> [HasPositionPoint<Self>; 3] {
+        let tri = tri.try_into().ok().unwrap();
+        let v0 = self.position(tri.0[0]);
+        let v1 = self.position(tri.0[1]);
+        let v2 = self.position(tri.0[2]);
+        [v0, v1, v2]
     }
 }
 
@@ -818,8 +825,8 @@ pub(crate) mod internal {
     use fnv::FnvHashMap;
     use typenum::Bit;
 
-    use super::TriId;
-    use crate::edge::internal::{HasEdges as HasEdgesIntr, HigherEdge, Link};
+    use super::{IntoTris, TriId};
+    use crate::{edge::{IntoEdges, internal::{Edge, HasEdges as HasEdgesIntr, HigherEdge, Link}}, vertex::{IntoVertices, internal::Vertex}};
     use crate::edge::EdgeId;
     use crate::vertex::internal::HigherVertex;
     use crate::vertex::VertexId;
@@ -830,7 +837,7 @@ pub(crate) mod internal {
         ($name:ident<$f:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$f> crate::tri::internal::Tri for $name<$f> {
                 type F = $f;
-                type Manifold = typenum::B0;
+                type Mwb = typenum::B0;
 
                 fn new(
                     $id: crate::vertex::VertexId,
@@ -867,11 +874,11 @@ pub(crate) mod internal {
 
     #[macro_export]
     #[doc(hidden)]
-    macro_rules! impl_tri_manifold {
+    macro_rules! impl_tri_mwb {
         ($name:ident<$f:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
             impl<$f> crate::tri::internal::Tri for $name<$f> {
                 type F = $f;
-                type Manifold = typenum::B1;
+                type Mwb = typenum::B1;
 
                 fn new(
                     $id: crate::vertex::VertexId,
@@ -882,13 +889,13 @@ pub(crate) mod internal {
                 }
 
                 fn links(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
-                    panic!("Cannot get links in \"manifold\" tri")
+                    panic!("Cannot get links in \"mwb\" tri")
                 }
 
                 fn links_mut(
                     &mut self,
                 ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
-                    panic!("Cannot get links in \"manifold\" tri")
+                    panic!("Cannot get links in \"mwb\" tri")
                 }
 
                 fn to_value(self) -> Self::F {
@@ -929,6 +936,38 @@ pub(crate) mod internal {
             impl<$v, $e, $f $(, $args)*> crate::tri::internal::HasTris for $name<$v, $e, $f $(, $args)*> {
                 type Tri = $tri<$f>;
 
+                fn from_vef_r<
+                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
+                    EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+                    FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::internal::Tri>::F)>,
+                >(
+                    vertices: VI,
+                    edges: EI,
+                    tris: FI,
+                    default_edge_fn: impl Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
+                ) -> Self {
+                    let mut mesh = Self::default();
+                    mesh.extend_vertices_with_ids(vertices);
+                    mesh.extend_edges(edges);
+                    mesh.extend_tris(tris, default_edge_fn);
+                    mesh
+                }
+
+                fn into_vef_r(self) -> (
+                    crate::vertex::IntoVertices<Self::Vertex>,
+                    crate::edge::IntoEdges<Self::Edge>,
+                    crate::tri::IntoTris<Self::Tri>,
+                ) {
+                    use crate::vertex::internal::Vertex;
+                    use crate::edge::internal::Edge;
+                    use crate::tri::internal::Tri;
+                    (
+                        self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
+                        self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                        self.tris.into_iter().map(|(id, f)| (id, f.to_value())),
+                    )
+                }
+
                 fn tris_r(&self) -> &FnvHashMap<crate::tri::TriId, Self::Tri> {
                     &self.tris
                 }
@@ -943,7 +982,7 @@ pub(crate) mod internal {
     /// Triangle storage
     pub trait Tri {
         type F;
-        type Manifold: Bit;
+        type Mwb: Bit;
 
         /// Takes the vertex id of the source, in case
         /// the triangle needs to store a dummy value for the opposite vertex
@@ -981,6 +1020,19 @@ pub(crate) mod internal {
         Self::Edge: HigherEdge,
     {
         type Tri: Tri;
+
+        fn from_vef_r<
+            VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
+            EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
+            FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
+        >(
+            vertices: VI,
+            edges: EI,
+            tris: FI,
+            default_edge_fn: impl Fn() -> <Self::Edge as Edge>::E + Clone,
+        ) -> Self;
+
+        fn into_vef_r(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>, IntoTris<Self::Tri>);
 
         fn tris_r(&self) -> &FnvHashMap<TriId, Self::Tri>;
 

@@ -10,7 +10,7 @@ use crate::vertex::VertexId;
 use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
 
-use internal::{Edge, HigherVertex, ManifoldEdge};
+use internal::{Edge, HigherVertex, MwbEdge};
 
 /// A combinatorial simplicial 1-complex, containing only vertices and (oriented) edges.
 /// Also known as an edge mesh.
@@ -59,26 +59,26 @@ pub type Mesh12<V, E> = Mesh1<V, E, U2>;
 /// A 3D-position-containing edge mesh
 pub type Mesh13<V, E> = Mesh1<V, E, U3>;
 
-/// A combinatorial simplicial 1-complex with the "manifold" property,
+/// A combinatorial simplicial 1-complex with the mwb property,
 /// which forces every vertex to be a source of at most 1 edge and a target of at most 1 edge.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-pub struct ManifoldComboMesh1<V, E> {
+pub struct MwbComboMesh1<V, E> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
-    edges: FnvHashMap<EdgeId, ManifoldEdge<E>>,
+    edges: FnvHashMap<EdgeId, MwbEdge<E>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(ManifoldComboMesh1<V, E>, HigherVertex);
-crate::impl_has_edges!(ManifoldComboMesh1<V, E>, ManifoldEdge);
-crate::impl_index_vertex!(ManifoldComboMesh1<V, E>);
-crate::impl_index_edge!(ManifoldComboMesh1<V, E>);
+crate::impl_has_vertices!(MwbComboMesh1<V, E>, HigherVertex);
+crate::impl_has_edges!(MwbComboMesh1<V, E>, MwbEdge);
+crate::impl_index_vertex!(MwbComboMesh1<V, E>);
+crate::impl_index_edge!(MwbComboMesh1<V, E>);
 
-impl<V, E> HasVertices for ManifoldComboMesh1<V, E> {}
-impl<V, E> HasEdges for ManifoldComboMesh1<V, E> {}
+impl<V, E> HasVertices for MwbComboMesh1<V, E> {}
+impl<V, E> HasEdges for MwbComboMesh1<V, E> {}
 
-impl<V, E> Default for ManifoldComboMesh1<V, E> {
+impl<V, E> Default for MwbComboMesh1<V, E> {
     fn default() -> Self {
-        ManifoldComboMesh1 {
+        MwbComboMesh1 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             next_vertex_id: 0,
@@ -86,7 +86,7 @@ impl<V, E> Default for ManifoldComboMesh1<V, E> {
     }
 }
 
-impl<V, E> ManifoldComboMesh1<V, E> {
+impl<V, E> MwbComboMesh1<V, E> {
     /// Creates an empty vertex mesh.
     pub fn new() -> Self {
         Self::default()
@@ -94,7 +94,7 @@ impl<V, E> ManifoldComboMesh1<V, E> {
 }
 
 pub(crate) mod internal {
-    use super::{ComboMesh1, ManifoldComboMesh1};
+    use super::{ComboMesh1, MwbComboMesh1};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
@@ -129,15 +129,15 @@ pub(crate) mod internal {
     #[rustfmt::skip]
     crate::impl_edge!(Edge<E>, new |_id, links, value| Edge { links, value });
 
-    /// An edge of a "manifold" edge mesh
+    /// An edge of a mwb edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
     #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-    pub struct ManifoldEdge<E> {
+    pub struct MwbEdge<E> {
         value: E,
     }
     #[rustfmt::skip]
-    crate::impl_edge_manifold!(ManifoldEdge<E>, new |_id, _links, value| ManifoldEdge { value });
+    crate::impl_edge_mwb!(MwbEdge<E>, new |_id, _links, value| MwbEdge { value });
 
     impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
@@ -163,7 +163,7 @@ pub(crate) mod internal {
         fn clear_edges_higher(&mut self) {}
     }
 
-    impl<V, E> RemoveVertexHigher for ManifoldComboMesh1<V, E> {
+    impl<V, E> RemoveVertexHigher for MwbComboMesh1<V, E> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.vertex_edge_out(vertex)
                 .map(|edge| self.remove_edge(edge));
@@ -172,17 +172,17 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E> ClearVerticesHigher for ManifoldComboMesh1<V, E> {
+    impl<V, E> ClearVerticesHigher for MwbComboMesh1<V, E> {
         fn clear_vertices_higher(&mut self) {
             self.edges.clear();
         }
     }
 
-    impl<V, E> RemoveEdgeHigher for ManifoldComboMesh1<V, E> {
+    impl<V, E> RemoveEdgeHigher for MwbComboMesh1<V, E> {
         fn remove_edge_higher(&mut self, _: EdgeId) {}
     }
 
-    impl<V, E> ClearEdgesHigher for ManifoldComboMesh1<V, E> {
+    impl<V, E> ClearEdgesHigher for MwbComboMesh1<V, E> {
         fn clear_edges_higher(&mut self) {}
     }
 }
@@ -234,7 +234,7 @@ mod tests {
 
     #[track_caller]
     fn assert_vertices_m<V: Clone + Debug + Eq + Hash, E, I: IntoIterator<Item = (VertexId, V)>>(
-        mesh: &ManifoldComboMesh1<V, E>,
+        mesh: &MwbComboMesh1<V, E>,
         vertices: I,
     ) {
         let result = mesh
@@ -253,7 +253,7 @@ mod tests {
         EI: TryInto<EdgeId>,
         I: IntoIterator<Item = (EI, E)>,
     >(
-        mesh: &ManifoldComboMesh1<V, E>,
+        mesh: &MwbComboMesh1<V, E>,
         edges: I,
     ) {
         let result = mesh
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_default_m() {
-        let mesh = ManifoldComboMesh1::<(), ()>::default();
+        let mesh = MwbComboMesh1::<(), ()>::default();
         assert!(mesh.vertices.is_empty());
         assert!(mesh.edges.is_empty());
         assert_eq!(mesh.num_edges(), 0);
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_add_vertex_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let id = mesh.add_vertex(3);
         assert_eq!(mesh.vertex(id), Some(&3));
 
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_extend_vertices_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(mesh.vertex(ids[0]), Some(&3));
         assert_eq!(mesh.vertex(ids[1]), Some(&6));
@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_add_edge_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let prev = mesh.add_edge([ids[1], ids[3]], 54);
         assert_eq!(prev, None);
@@ -735,14 +735,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_add_edge_bad_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         mesh.add_edge([ids[1], ids[1]], 4);
     }
 
     #[test]
     fn test_extend_edges_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[0], ids[3]], 5), // killed by 1-3
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_remove_vertex_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn test_remove_add_vertex_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -819,7 +819,7 @@ mod tests {
 
     #[test]
     fn test_remove_edge_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -837,7 +837,7 @@ mod tests {
 
     #[test]
     fn test_remove_add_edge_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_clear_vertices_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn test_clear_edges_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn test_walker_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -933,7 +933,7 @@ mod tests {
 
     #[test]
     fn test_vertex_edges_out_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![
             ([ids[3], ids[1]], 2),
@@ -955,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_vertex_edges_in_m() {
-        let mut mesh = ManifoldComboMesh1::<usize, usize>::default();
+        let mut mesh = MwbComboMesh1::<usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
         let edges = vec![([ids[3], ids[1]], 2), ([ids[1], ids[2]], 9)];
         mesh.extend_edges(edges.clone());

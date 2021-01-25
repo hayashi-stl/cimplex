@@ -16,7 +16,7 @@ use crate::{
     vertex::IdType,
 };
 
-use internal::{HigherTri, ManifoldTet, Tet};
+use internal::{HigherTri, MwbTet, Tet};
 
 /// A combinatorial simplicial 3-complex, containing only vertices, (oriented) edges, (oriented) triangles, and (oriented) tetrahedrons.
 /// Also known as an tet mesh.
@@ -81,35 +81,35 @@ pub type Mesh32<V, E, F, T> = Mesh3<V, E, F, T, U2>;
 /// A 3D-position-containing tri mesh
 pub type Mesh33<V, E, F, T> = Mesh3<V, E, F, T, U3>;
 
-/// A combinatorial simplicial 3-complex with the "manifold" property,
+/// A combinatorial simplicial 3-complex with the mwb property,
 /// which forces every oriented triangle to be part of at most 1 tetrahedron.
 /// Please don't call `add_edge` or `add_tri` on this.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-pub struct ManifoldComboMesh3<V, E, F, T> {
+pub struct MwbComboMesh3<V, E, F, T> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, HigherTri<F>>,
-    tets: FnvHashMap<TetId, ManifoldTet<T>>,
+    tets: FnvHashMap<TetId, MwbTet<T>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(ManifoldComboMesh3<V, E, F, T>, HigherVertex);
-crate::impl_has_edges!(ManifoldComboMesh3<V, E, F, T>, HigherEdge);
-crate::impl_has_tris!(ManifoldComboMesh3<V, E, F, T>, HigherTri);
-crate::impl_has_tets!(ManifoldComboMesh3<V, E, F, T>, ManifoldTet);
-crate::impl_index_vertex!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_edge!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_tri!(ManifoldComboMesh3<V, E, F, T>);
-crate::impl_index_tet!(ManifoldComboMesh3<V, E, F, T>);
+crate::impl_has_vertices!(MwbComboMesh3<V, E, F, T>, HigherVertex);
+crate::impl_has_edges!(MwbComboMesh3<V, E, F, T>, HigherEdge);
+crate::impl_has_tris!(MwbComboMesh3<V, E, F, T>, HigherTri);
+crate::impl_has_tets!(MwbComboMesh3<V, E, F, T>, MwbTet);
+crate::impl_index_vertex!(MwbComboMesh3<V, E, F, T>);
+crate::impl_index_edge!(MwbComboMesh3<V, E, F, T>);
+crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
+crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
 
-impl<V, E, F, T> HasVertices for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasEdges for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTris for ManifoldComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTets for ManifoldComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {}
 
-impl<V, E, F, T> Default for ManifoldComboMesh3<V, E, F, T> {
+impl<V, E, F, T> Default for MwbComboMesh3<V, E, F, T> {
     fn default() -> Self {
-        ManifoldComboMesh3 {
+        MwbComboMesh3 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             tris: FnvHashMap::default(),
@@ -119,7 +119,7 @@ impl<V, E, F, T> Default for ManifoldComboMesh3<V, E, F, T> {
     }
 }
 
-impl<V, E, F, T> ManifoldComboMesh3<V, E, F, T> {
+impl<V, E, F, T> MwbComboMesh3<V, E, F, T> {
     /// Creates an empty tri mesh.
     pub fn new() -> Self {
         Self::default()
@@ -127,7 +127,7 @@ impl<V, E, F, T> ManifoldComboMesh3<V, E, F, T> {
 }
 
 mod internal {
-    use super::{ComboMesh3, ManifoldComboMesh3};
+    use super::{ComboMesh3, MwbComboMesh3};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::tet::internal::{ClearTetsHigher, RemoveTetHigher};
@@ -175,18 +175,18 @@ mod internal {
     #[rustfmt::skip]
     crate::impl_tet!(Tet<T>, new |_id, links, value| Tet { links, value });
 
-    /// A tetrahedron of a "manifold" tet mesh.
+    /// A tetrahedron of a mwb tet mesh.
     #[derive(Clone, Debug)]
     #[doc(hidden)]
     #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-    pub struct ManifoldTet<T> {
+    pub struct MwbTet<T> {
         value: T,
     }
-    crate::impl_tet_manifold!(
-        ManifoldTet<T>,
+    crate::impl_tet_mwb!(
+        MwbTet<T>,
         new | _id,
         _links,
-        value | ManifoldTet { value }
+        value | MwbTet { value }
     );
 
     impl<V, E, F, T> RemoveVertexHigher for ComboMesh3<V, E, F, T> {
@@ -240,7 +240,7 @@ mod internal {
         fn clear_tets_higher(&mut self) {}
     }
 
-    impl<V, E, F, T> RemoveVertexHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> RemoveVertexHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
                 self.vertex_edges_out(vertex)
@@ -250,7 +250,7 @@ mod internal {
         }
     }
 
-    impl<V, E, F, T> ClearVerticesHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> ClearVerticesHigher for MwbComboMesh3<V, E, F, T> {
         fn clear_vertices_higher(&mut self) {
             self.tets.clear();
             self.tris.clear();
@@ -258,20 +258,20 @@ mod internal {
         }
     }
 
-    impl<V, E, F, T> RemoveEdgeHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> RemoveEdgeHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_edge_higher(&mut self, edge: EdgeId) {
             self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
         }
     }
 
-    impl<V, E, F, T> ClearEdgesHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> ClearEdgesHigher for MwbComboMesh3<V, E, F, T> {
         fn clear_edges_higher(&mut self) {
             self.tets.clear();
             self.tris.clear();
         }
     }
 
-    impl<V, E, F, T> RemoveTriHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> RemoveTriHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_tri_higher(&mut self, tri: TriId) {
             self.tri_vertex_opp(tri).map(|opp| {
                 self.remove_tet_keep_tris(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp]));
@@ -283,17 +283,17 @@ mod internal {
         }
     }
 
-    impl<V, E, F, T> ClearTrisHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> ClearTrisHigher for MwbComboMesh3<V, E, F, T> {
         fn clear_tris_higher(&mut self) {
             self.tets.clear();
         }
     }
 
-    impl<V, E, F, T> RemoveTetHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> RemoveTetHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_tet_higher(&mut self, _: TetId) {}
     }
 
-    impl<V, E, F, T> ClearTetsHigher for ManifoldComboMesh3<V, E, F, T> {
+    impl<V, E, F, T> ClearTetsHigher for MwbComboMesh3<V, E, F, T> {
         fn clear_tets_higher(&mut self) {}
     }
 }
@@ -409,7 +409,7 @@ mod tests {
         T,
         I: IntoIterator<Item = (VertexId, V)>,
     >(
-        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        mesh: &MwbComboMesh3<V, E, F, T>,
         vertices: I,
     ) {
         let result = mesh
@@ -430,7 +430,7 @@ mod tests {
         T,
         I: IntoIterator<Item = (EI, E)>,
     >(
-        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        mesh: &MwbComboMesh3<V, E, F, T>,
         edges: I,
     ) {
         let result = mesh
@@ -455,7 +455,7 @@ mod tests {
         T,
         I: IntoIterator<Item = (FI, F)>,
     >(
-        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        mesh: &MwbComboMesh3<V, E, F, T>,
         tris: I,
     ) {
         let result = mesh
@@ -480,7 +480,7 @@ mod tests {
         TI: TryInto<TetId>,
         I: IntoIterator<Item = (TI, T)>,
     >(
-        mesh: &ManifoldComboMesh3<V, E, F, T>,
+        mesh: &MwbComboMesh3<V, E, F, T>,
         tets: I,
     ) {
         let result = mesh
@@ -1413,7 +1413,7 @@ mod tests {
 
     #[test]
     fn test_default_m() {
-        let mesh = ManifoldComboMesh3::<(), (), (), ()>::default();
+        let mesh = MwbComboMesh3::<(), (), (), ()>::default();
         assert!(mesh.vertices.is_empty());
         assert!(mesh.edges.is_empty());
         assert!(mesh.tris.is_empty());
@@ -1425,7 +1425,7 @@ mod tests {
 
     #[test]
     fn test_add_tet_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(
             mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0),
@@ -1497,7 +1497,7 @@ mod tests {
 
     #[test]
     fn test_extend_tets_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
 
         let tets = vec![
@@ -1524,7 +1524,7 @@ mod tests {
 
     #[test]
     fn test_remove_tet_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1562,7 +1562,7 @@ mod tests {
 
     #[test]
     fn test_remove_add_tet_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1597,7 +1597,7 @@ mod tests {
 
     #[test]
     fn test_clear_vertices_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1617,7 +1617,7 @@ mod tests {
 
     #[test]
     fn test_clear_edges_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1649,7 +1649,7 @@ mod tests {
 
     #[test]
     fn test_clear_tris_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1681,7 +1681,7 @@ mod tests {
 
     #[test]
     fn test_clear_tets_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1701,7 +1701,7 @@ mod tests {
 
     #[test]
     fn test_tet_walker_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1790,7 +1790,7 @@ mod tests {
 
     #[test]
     fn test_tri_tets_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1812,7 +1812,7 @@ mod tests {
 
     #[test]
     fn test_edge_tets_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
@@ -1834,7 +1834,7 @@ mod tests {
 
     #[test]
     fn test_vertex_tets_m() {
-        let mut mesh = ManifoldComboMesh3::<usize, usize, usize, usize>::default();
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
         let tets = vec![
             ([ids[1], ids[2], ids[3], ids[0]], 2),
