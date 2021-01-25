@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
 use typenum::{U2, U3};
 
-use crate::vertex::internal::Vertex as VertexIntr;
-use crate::vertex::{HasVertices, IdType, VertexId};
+use crate::vertex::{HasVertices, IdType, VertexId, Vertex as VertexIntr};
 use crate::PtN;
+use crate::private::{Lock, Key};
 
 use internal::Vertex;
 
@@ -20,10 +20,15 @@ pub struct ComboMesh0<V> {
     next_vertex_id: IdType,
 }
 
-crate::impl_has_vertices!(ComboMesh0<V>, Vertex);
 crate::impl_index_vertex!(ComboMesh0<V>);
 
-impl<V> HasVertices for ComboMesh0<V> {}
+impl<V> HasVertices for ComboMesh0<V> {
+    crate::impl_has_vertices!(Vertex<V>);
+
+    fn remove_vertex_higher<L: Lock>(&mut self, _: VertexId) {}
+
+    fn clear_vertices_higher<L: Lock>(&mut self) {}
+}
 
 impl<V> Default for ComboMesh0<V> {
     fn default() -> Self {
@@ -50,7 +55,7 @@ impl<V> IntoIterator for ComboMesh0<V> {
 
     /// Converts this into an iterator of vertex values.
     fn into_iter(self) -> Self::IntoIter {
-        self.vertices.into_iter().map(|(id, v)| (id, v.to_value()))
+        self.vertices.into_iter().map(|(id, v)| (id, v.to_value::<Key>()))
     }
 }
 
@@ -59,7 +64,7 @@ impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
         let mut mesh = Self {
             vertices: iter
                 .into_iter()
-                .map(|(id, v)| (id, Vertex::new(id, v)))
+                .map(|(id, v)| (id, VertexIntr::new::<Key>(id, v)))
                 .collect(),
             next_vertex_id: 0,
         };
@@ -71,7 +76,7 @@ impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
 impl<V> Extend<(VertexId, V)> for ComboMesh0<V> {
     fn extend<T: IntoIterator<Item = (VertexId, V)>>(&mut self, iter: T) {
         self.vertices
-            .extend(iter.into_iter().map(|(id, v)| (id, Vertex::new(id, v))))
+            .extend(iter.into_iter().map(|(id, v)| (id, VertexIntr::new::<Key>(id, v))))
     }
 }
 
@@ -85,9 +90,6 @@ pub type Mesh02<V> = Mesh0<V, U2>;
 pub type Mesh03<V> = Mesh0<V, U3>;
 
 mod internal {
-    use super::ComboMesh0;
-    use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
-    use crate::vertex::VertexId;
     #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
 
@@ -99,14 +101,6 @@ mod internal {
     }
     #[rustfmt::skip]
     crate::impl_vertex!(Vertex<V>, new |_id, value| Vertex { value });
-
-    impl<V> RemoveVertexHigher for ComboMesh0<V> {
-        fn remove_vertex_higher(&mut self, _: VertexId) {}
-    }
-
-    impl<V> ClearVerticesHigher for ComboMesh0<V> {
-        fn clear_vertices_higher(&mut self) {}
-    }
 }
 
 #[cfg(test)]

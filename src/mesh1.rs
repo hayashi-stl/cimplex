@@ -9,6 +9,7 @@ use typenum::{U2, U3};
 use crate::vertex::VertexId;
 use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
+use crate::private::Lock;
 
 use internal::{Edge, HigherVertex, MwbEdge};
 
@@ -25,13 +26,32 @@ pub struct ComboMesh1<V, E> {
     edges: FnvHashMap<EdgeId, Edge<E>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(ComboMesh1<V, E>, HigherVertex);
-crate::impl_has_edges!(ComboMesh1<V, E>, Edge);
 crate::impl_index_vertex!(ComboMesh1<V, E>);
 crate::impl_index_edge!(ComboMesh1<V, E>);
 
-impl<V, E> HasVertices for ComboMesh1<V, E> {}
-impl<V, E> HasEdges for ComboMesh1<V, E> {}
+impl<V, E> HasVertices for ComboMesh1<V, E> {
+    crate::impl_has_vertices!(HigherVertex<V>);
+
+    fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
+        self.remove_edges(
+            self.vertex_edges_out(vertex)
+                .chain(self.vertex_edges_in(vertex))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    fn clear_vertices_higher<L: Lock>(&mut self) {
+        self.edges.clear();
+    }
+}
+
+impl<V, E> HasEdges for ComboMesh1<V, E> {
+    crate::impl_has_edges!(Edge<E>);
+
+    fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
+
+    fn clear_edges_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E> Default for ComboMesh1<V, E> {
     fn default() -> Self {
@@ -68,13 +88,31 @@ pub struct MwbComboMesh1<V, E> {
     edges: FnvHashMap<EdgeId, MwbEdge<E>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(MwbComboMesh1<V, E>, HigherVertex);
-crate::impl_has_edges!(MwbComboMesh1<V, E>, MwbEdge);
 crate::impl_index_vertex!(MwbComboMesh1<V, E>);
 crate::impl_index_edge!(MwbComboMesh1<V, E>);
 
-impl<V, E> HasVertices for MwbComboMesh1<V, E> {}
-impl<V, E> HasEdges for MwbComboMesh1<V, E> {}
+impl<V, E> HasVertices for MwbComboMesh1<V, E> {
+    crate::impl_has_vertices!(HigherVertex<V>);
+
+    fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
+        self.vertex_edge_out(vertex)
+            .map(|edge| self.remove_edge(edge));
+        self.vertex_edge_in(vertex)
+            .map(|edge| self.remove_edge(edge));
+    }
+
+    fn clear_vertices_higher<L: Lock>(&mut self) {
+        self.edges.clear();
+    }
+}
+
+impl<V, E> HasEdges for MwbComboMesh1<V, E> {
+    crate::impl_has_edges!(MwbEdge<E>);
+
+    fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
+
+    fn clear_edges_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E> Default for MwbComboMesh1<V, E> {
     fn default() -> Self {
@@ -94,10 +132,7 @@ impl<V, E> MwbComboMesh1<V, E> {
 }
 
 pub(crate) mod internal {
-    use super::{ComboMesh1, MwbComboMesh1};
-    use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
-    use crate::edge::{EdgeId, HasEdges};
-    use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
+    use crate::edge::Link;
     use crate::vertex::VertexId;
     #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
@@ -138,53 +173,6 @@ pub(crate) mod internal {
     }
     #[rustfmt::skip]
     crate::impl_edge_mwb!(MwbEdge<E>, new |_id, _links, value| MwbEdge { value });
-
-    impl<V, E> RemoveVertexHigher for ComboMesh1<V, E> {
-        fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.remove_edges(
-                self.vertex_edges_out(vertex)
-                    .chain(self.vertex_edges_in(vertex))
-                    .collect::<Vec<_>>(),
-            );
-        }
-    }
-
-    impl<V, E> ClearVerticesHigher for ComboMesh1<V, E> {
-        fn clear_vertices_higher(&mut self) {
-            self.edges.clear();
-        }
-    }
-
-    impl<V, E> RemoveEdgeHigher for ComboMesh1<V, E> {
-        fn remove_edge_higher(&mut self, _: EdgeId) {}
-    }
-
-    impl<V, E> ClearEdgesHigher for ComboMesh1<V, E> {
-        fn clear_edges_higher(&mut self) {}
-    }
-
-    impl<V, E> RemoveVertexHigher for MwbComboMesh1<V, E> {
-        fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.vertex_edge_out(vertex)
-                .map(|edge| self.remove_edge(edge));
-            self.vertex_edge_in(vertex)
-                .map(|edge| self.remove_edge(edge));
-        }
-    }
-
-    impl<V, E> ClearVerticesHigher for MwbComboMesh1<V, E> {
-        fn clear_vertices_higher(&mut self) {
-            self.edges.clear();
-        }
-    }
-
-    impl<V, E> RemoveEdgeHigher for MwbComboMesh1<V, E> {
-        fn remove_edge_higher(&mut self, _: EdgeId) {}
-    }
-
-    impl<V, E> ClearEdgesHigher for MwbComboMesh1<V, E> {
-        fn clear_edges_higher(&mut self) {}
-    }
 }
 
 #[cfg(test)]

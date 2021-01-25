@@ -31,14 +31,39 @@ pub struct ComboMesh2<V, E, F> {
     tris: FnvHashMap<TriId, Tri<F>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(ComboMesh2<V, E, F>, HigherVertex);
-crate::impl_has_edges!(ComboMesh2<V, E, F>, HigherEdge);
 crate::impl_index_vertex!(ComboMesh2<V, E, F>);
 crate::impl_index_edge!(ComboMesh2<V, E, F>);
 crate::impl_index_tri!(ComboMesh2<V, E, F>);
 
-impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {}
-impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {}
+impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {
+    crate::impl_has_vertices!(HigherVertex<V>);
+
+    fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
+        self.remove_edges(
+            self.vertex_edges_out(vertex)
+                .chain(self.vertex_edges_in(vertex))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    fn clear_vertices_higher<L: Lock>(&mut self) {
+        self.tris.clear();
+        self.edges.clear();
+    }
+}
+
+impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {
+    crate::impl_has_edges!(HigherEdge<E>);
+
+    fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
+        self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+    }
+
+    fn clear_edges_higher<L: Lock>(&mut self) {
+        self.tris.clear();
+    }
+}
+
 impl<V, E, F> HasTris for ComboMesh2<V, E, F> {
     crate::impl_has_tris!(Tri<F>);
 
@@ -85,14 +110,44 @@ pub struct MwbComboMesh2<V, E, F> {
     tris: FnvHashMap<TriId, MwbTri<F>>,
     next_vertex_id: IdType,
 }
-crate::impl_has_vertices!(MwbComboMesh2<V, E, F>, HigherVertex);
-crate::impl_has_edges!(MwbComboMesh2<V, E, F>, HigherEdge);
 crate::impl_index_vertex!(MwbComboMesh2<V, E, F>);
 crate::impl_index_edge!(MwbComboMesh2<V, E, F>);
 crate::impl_index_tri!(MwbComboMesh2<V, E, F>);
 
-impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {}
-impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {}
+impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {
+    crate::impl_has_vertices!(HigherVertex<V>);
+
+    fn clear_vertices_higher<L: Lock>(&mut self) {
+        self.tris.clear();
+        self.edges.clear();
+    }
+
+    fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
+        self.remove_edges(
+            self.vertex_edges_out(vertex)
+                .chain(self.vertex_edges_in(vertex))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+
+impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {
+    crate::impl_has_edges!(HigherEdge<E>);
+
+    fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
+        self.edge_vertex_opp(edge).map(|opp| {
+            self.remove_tri_keep_edges(TriId::from_valid([edge.0[0], edge.0[1], opp]));
+            // Be careful not to remove `edge` as it will be removed after this function
+            self.remove_edge(EdgeId([edge.0[1], opp]));
+            self.remove_edge(EdgeId([opp, edge.0[0]]));
+        });
+    }
+
+    fn clear_edges_higher<L: Lock>(&mut self) {
+        self.tris.clear();
+    }
+}
+
 impl<V, E, F> HasTris for MwbComboMesh2<V, E, F> {
     crate::impl_has_tris!(MwbTri<F>);
 
@@ -120,11 +175,7 @@ impl<V, E, F> MwbComboMesh2<V, E, F> {
 }
 
 pub(crate) mod internal {
-    use super::{ComboMesh2, MwbComboMesh2};
-    use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
-    use crate::edge::{EdgeId, HasEdges};
-    use crate::tri::{HasTris, TriId};
-    use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
+    use crate::edge::Link;
     use crate::vertex::VertexId;
     #[cfg(feature = "serialize")]
     use serde::{Deserialize, Serialize};
@@ -174,69 +225,6 @@ pub(crate) mod internal {
     }
     #[rustfmt::skip]
     crate::impl_tri_mwb!(MwbTri<F>, new |_id, _links, value| MwbTri { value });
-
-    impl<V, E, F> RemoveVertexHigher for ComboMesh2<V, E, F> {
-        fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.remove_edges(
-                self.vertex_edges_out(vertex)
-                    .chain(self.vertex_edges_in(vertex))
-                    .collect::<Vec<_>>(),
-            );
-        }
-    }
-
-    impl<V, E, F> ClearVerticesHigher for ComboMesh2<V, E, F> {
-        fn clear_vertices_higher(&mut self) {
-            self.tris.clear();
-            self.edges.clear();
-        }
-    }
-
-    impl<V, E, F> RemoveEdgeHigher for ComboMesh2<V, E, F> {
-        fn remove_edge_higher(&mut self, edge: EdgeId) {
-            self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
-        }
-    }
-
-    impl<V, E, F> ClearEdgesHigher for ComboMesh2<V, E, F> {
-        fn clear_edges_higher(&mut self) {
-            self.tris.clear();
-        }
-    }
-
-    impl<V, E, F> ClearVerticesHigher for MwbComboMesh2<V, E, F> {
-        fn clear_vertices_higher(&mut self) {
-            self.tris.clear();
-            self.edges.clear();
-        }
-    }
-
-    impl<V, E, F> RemoveVertexHigher for MwbComboMesh2<V, E, F> {
-        fn remove_vertex_higher(&mut self, vertex: VertexId) {
-            self.remove_edges(
-                self.vertex_edges_out(vertex)
-                    .chain(self.vertex_edges_in(vertex))
-                    .collect::<Vec<_>>(),
-            );
-        }
-    }
-
-    impl<V, E, F> RemoveEdgeHigher for MwbComboMesh2<V, E, F> {
-        fn remove_edge_higher(&mut self, edge: EdgeId) {
-            self.edge_vertex_opp(edge).map(|opp| {
-                self.remove_tri_keep_edges(TriId::from_valid([edge.0[0], edge.0[1], opp]));
-                // Be careful not to remove `edge` as it will be removed after this function
-                self.remove_edge(EdgeId([edge.0[1], opp]));
-                self.remove_edge(EdgeId([opp, edge.0[0]]));
-            });
-        }
-    }
-
-    impl<V, E, F> ClearEdgesHigher for MwbComboMesh2<V, E, F> {
-        fn clear_edges_higher(&mut self) {
-            self.tris.clear();
-        }
-    }
 }
 
 #[cfg(test)]

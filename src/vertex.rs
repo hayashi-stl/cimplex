@@ -1,6 +1,6 @@
 //! Traits and structs related to vertices
 
-use idmap::table::DenseEntryTable;
+use idmap::{OrderedIdMap, table::DenseEntryTable};
 use nalgebra::allocator::Allocator;
 use nalgebra::{DefaultAllocator, DimName, Point};
 #[cfg(feature = "serialize")]
@@ -10,21 +10,16 @@ use alga::general::{MeetSemilattice, JoinSemilattice};
 use nalgebra::dimension::U3;
 use typenum::B1;
 
-use internal::{ClearVerticesHigher, HasVertices as HasVerticesIntr, RemoveVertexHigher, Vertex};
-
-use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::HasTets, tri::{HasTris, HigherTri, Tri}};
-use crate::edge::internal::HasEdges as HasEdgesIntr;
+use crate::{edge::{HasEdges, Edge, HigherEdge}, tet::HasTets, tri::{HasTris, HigherTri, Tri}};
 use crate::tet::Tet;
-use crate::private::Key;
-
-use self::internal::HigherVertex;
+use crate::private::{Lock, Key};
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
 pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
 pub(crate) type HasPositionDim<P> =
-    <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Dim;
+    <<<P as HasVertices>::Vertex as Vertex>::V as Position>::Dim;
 pub(crate) type HasPositionPoint<P> = Point<f64, HasPositionDim<P>>;
-pub(crate) type HasPositionRest<P> = <<<P as HasVerticesIntr>::Vertex as Vertex>::V as Position>::Rest;
+pub(crate) type HasPositionRest<P> = <<<P as HasVertices>::Vertex as Vertex>::V as Position>::Rest;
 
 /// For values that can represent a position.
 pub trait Position
@@ -55,7 +50,7 @@ where
         self.clone()
     }
 
-    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self {
+    fn with_position(point: PositionPoint<Self>, _rest: Self::Rest) -> Self {
         point
     }
 }
@@ -119,51 +114,109 @@ macro_rules! V {
     };
 }
 
+/// Vertex attributes
+pub trait Vertex {
+    type V;
+
+    #[doc(hidden)]
+    fn new<L: Lock>(id: VertexId, value: Self::V) -> Self;
+
+    #[doc(hidden)]
+    fn to_value<L: Lock>(self) -> Self::V;
+
+    #[doc(hidden)]
+    fn value<L: Lock>(&self) -> &Self::V;
+
+    #[doc(hidden)]
+    fn value_mut<L: Lock>(&mut self) -> &mut Self::V;
+}
+
+/// Extra storage for a vertex in a mesh that contains edges
+pub trait HigherVertex: Vertex {
+    #[doc(hidden)]
+    fn source<L: Lock>(&self) -> VertexId;
+
+    #[doc(hidden)]
+    fn source_mut<L: Lock>(&mut self) -> &mut VertexId;
+
+    #[doc(hidden)]
+    fn target<L: Lock>(&self) -> VertexId;
+
+    #[doc(hidden)]
+    fn target_mut<L: Lock>(&mut self) -> &mut VertexId;
+}
+
 /// For simplicial complexes that can have vertices, that is, all of them
-pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVerticesHigher {
+pub trait HasVertices {
+    type Vertex: Vertex;
+
+    #[doc(hidden)]
+    fn from_v_r<VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>, L: Lock>(vertices: VI) -> Self;
+
+    #[doc(hidden)]
+    fn into_v_r<L: Lock>(self) -> IntoVertices<Self::Vertex>;
+
+    #[doc(hidden)]
+    fn vertices_r<L: Lock>(&self) -> &OrderedIdMap<VertexId, Self::Vertex>;
+
+    #[doc(hidden)]
+    fn vertices_r_mut<L: Lock>(&mut self) -> &mut OrderedIdMap<VertexId, Self::Vertex>;
+
+    #[doc(hidden)]
+    fn next_vertex_id<L: Lock>(&self) -> IdType;
+
+    #[doc(hidden)]
+    fn next_vertex_id_mut<L: Lock>(&mut self) -> &mut IdType;
+
+    #[doc(hidden)]
+    fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId);
+
+    #[doc(hidden)]
+    fn clear_vertices_higher<L: Lock>(&mut self);
+
     /// Gets the number of vertices.
     fn num_vertices(&self) -> usize {
-        self.vertices_r().len()
+        self.vertices_r::<Key>().len()
     }
 
     /// Iterates over the vertex ids of this mesh.
     fn vertex_ids(&self) -> VertexIds<Self::Vertex> {
-        self.vertices_r().keys()
+        self.vertices_r::<Key>().keys()
     }
 
     /// Iterates over the vertices of this mesh.
     /// Gives (id, value) pairs
     fn vertices(&self) -> Vertices<Self::Vertex> {
-        self.vertices_r().iter().map(|(id, v)| (id, v.value()))
+        self.vertices_r::<Key>().iter().map(|(id, v)| (id, v.value::<Key>()))
     }
 
     /// Iterates mutably over the vertices of this mesh.
     /// Gives (id, value) pairs
     fn vertices_mut(&mut self) -> VerticesMut<Self::Vertex> {
-        self.vertices_r_mut()
+        self.vertices_r_mut::<Key>()
             .iter_mut()
-            .map(|(id, v)| (id, v.value_mut()))
+            .map(|(id, v)| (id, v.value_mut::<Key>()))
     }
 
     /// Gets the value of the vertex at a specific id.
     /// Returns None if not found.
     fn vertex(&self, id: VertexId) -> Option<&V!()> {
-        self.vertices_r().get(id).map(|v| v.value())
+        self.vertices_r::<Key>().get(id).map(|v| v.value::<Key>())
     }
 
     /// Gets the value of the vertex at a specific id mutably.
     /// Returns None if not found.
     fn vertex_mut(&mut self, id: VertexId) -> Option<&mut V!()> {
-        self.vertices_r_mut().get_mut(id).map(|v| v.value_mut())
+        self.vertices_r_mut::<Key>().get_mut(id).map(|v| v.value_mut::<Key>())
     }
 
     /// Adds a vertex to the mesh and returns the id.
     fn add_vertex(&mut self, value: V!()) -> VertexId {
-        let id = VertexId(self.next_vertex_id());
-        *self.next_vertex_id_mut() += 1;
+        let id = VertexId(self.next_vertex_id::<Key>());
+        *self.next_vertex_id_mut::<Key>() += 1;
         debug_assert!(self
-            .vertices_r_mut()
-            .insert(id, <Self::Vertex as Vertex>::new(id, value))
+            .vertices_r_mut::<Key>()
+            .insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value))
             .is_none());
         id
     }
@@ -171,9 +224,9 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
     /// Adds a vertex with a specific id.
     /// Returns the value that was previously there, if any
     fn add_vertex_with_id(&mut self, id: VertexId, value: V!()) -> Option<V!()> {
-        *self.next_vertex_id_mut() = (id.0 + 1).max(self.next_vertex_id());
-        self.vertices_r_mut().insert(id, <Self::Vertex as Vertex>::new(id, value))
-            .map(|vertex| vertex.to_value())
+        *self.next_vertex_id_mut::<Key>() = (id.0 + 1).max(self.next_vertex_id::<Key>());
+        self.vertices_r_mut::<Key>().insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value))
+            .map(|vertex| vertex.to_value::<Key>())
     }
 
     /// Extends the vertex list with an iterator and returns a `Vec`
@@ -196,9 +249,9 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
     /// Returns the value of the vertex that was there or None if none was there,
     fn remove_vertex(&mut self, id: VertexId) -> Option<V!()> {
         if self.vertex(id).is_some() {
-            self.remove_vertex_higher(id);
+            self.remove_vertex_higher::<Key>(id);
         }
-        self.vertices_r_mut().remove(id).map(|v| v.to_value())
+        self.vertices_r_mut::<Key>().remove(id).map(|v| v.to_value::<Key>())
     }
 
     /// Removes a list of vertices.
@@ -220,8 +273,8 @@ pub trait HasVertices: internal::HasVertices + RemoveVertexHigher + ClearVertice
 
     /// Removes all vertices from the mesh.
     fn clear_vertices(&mut self) {
-        self.clear_vertices_higher();
-        self.vertices_r_mut().clear();
+        self.clear_vertices_higher::<Key>();
+        self.vertices_r_mut::<Key>().clear();
     }
 }
 
@@ -273,20 +326,17 @@ where
     fn delaunay_tets<M>(self,
         tet_value_fn: impl Fn() -> <<M as HasTets>::Tet as Tet>::T,
         tri_value_fn: impl Fn() -> <<M as HasTris>::Tri as Tri>::F + Clone,
-        edge_value_fn: impl Fn() -> <<M as HasEdgesIntr>::Edge as Edge>::E + Clone,
+        edge_value_fn: impl Fn() -> <<M as HasEdges>::Edge as Edge>::E + Clone,
         v_rest_fn: impl Fn() -> <<Self::Vertex as Vertex>::V as Position>::Rest,
     ) -> M where
         Self: Sized,
-        M: HasVertices,
-        <M as HasVerticesIntr>::Vertex: Vertex<V = V!()> + HigherVertex,
-        M: HasEdges,
-        <M as HasEdgesIntr>::Edge: HigherEdge,
-        M: HasTris,
-        <M as HasTris>::Tri: HigherTri,
         M: HasTets,
+        <M as HasVertices>::Vertex: Vertex<V = V!()> + HigherVertex,
+        <M as HasEdges>::Edge: HigherEdge,
+        <M as HasTris>::Tri: HigherTri,
         <M as HasTets>::Tet: Tet<Mwb = B1>,
     {
-        let mesh = M::from_veft_r::<_, _, _, _, _, _, Key>(self.into_v_r(), vec![], vec![], vec![],
+        let mesh = M::from_veft_r::<_, _, _, _, _, _, Key>(self.into_v_r::<Key>(), vec![], vec![], vec![],
             tri_value_fn.clone(), edge_value_fn.clone());
 
         crate::tetrahedralize::delaunay_tets(mesh, tet_value_fn, tri_value_fn, edge_value_fn, v_rest_fn)
@@ -320,146 +370,91 @@ macro_rules! impl_index_vertex {
     };
 }
 
-pub(crate) mod internal {
-    use super::{IdType, IntoVertices, VertexId};
-    use idmap::OrderedIdMap;
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_vertex {
+    ($name:ident<$v:ident>, new |$id:ident, $value:ident| $new:expr) => {
+        impl<$v> crate::vertex::Vertex for $name<$v> {
+            type V = $v;
 
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_vertex {
-        ($name:ident<$v:ident>, new |$id:ident, $value:ident| $new:expr) => {
-            impl<$v> crate::vertex::internal::Vertex for $name<$v> {
-                type V = $v;
-
-                fn new($id: crate::vertex::VertexId, $value: Self::V) -> Self {
-                    $new
-                }
-
-                fn to_value(self) -> Self::V {
-                    self.value
-                }
-
-                fn value(&self) -> &Self::V {
-                    &self.value
-                }
-
-                fn value_mut(&mut self) -> &mut Self::V {
-                    &mut self.value
-                }
+            fn new<L: crate::private::Lock>($id: crate::vertex::VertexId, $value: Self::V) -> Self {
+                $new
             }
-        };
-    }
 
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_higher_vertex {
-        ($name:ident<$v:ident>) => {
-            impl<$v> crate::vertex::internal::HigherVertex for $name<$v> {
-                fn source(&self) -> VertexId {
-                    self.source
-                }
-
-                fn source_mut(&mut self) -> &mut crate::vertex::VertexId {
-                    &mut self.source
-                }
-
-                fn target(&self) -> VertexId {
-                    self.target
-                }
-
-                fn target_mut(&mut self) -> &mut crate::vertex::VertexId {
-                    &mut self.target
-                }
+            fn to_value<L: crate::private::Lock>(self) -> Self::V {
+                self.value
             }
-        };
-    }
 
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_has_vertices {
-        ($name:ident<$v:ident $(, $args:ident)*>, $vertex:ident) => {
-            impl<$v $(, $args)*> crate::vertex::internal::HasVertices for $name<$v $(, $args)*> {
-                type Vertex = $vertex<$v>;
+            fn value<L: crate::private::Lock>(&self) -> &Self::V {
+                &self.value
+            }
 
-                fn from_v_r<
-                    VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>
-                >(vertices: VI) -> Self {
-                    let mut mesh = Self::default();
-                    mesh.extend_vertices_with_ids(vertices);
-                    mesh
-                }
-
-                fn into_v_r(self) -> crate::vertex::IntoVertices<Self::Vertex> {
-                    use crate::vertex::internal::Vertex;
-                    self.vertices.into_iter().map(|(id, v)| (id, v.to_value()))
-                }
-
-                fn vertices_r(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
-                    &self.vertices
-                }
-
-                fn vertices_r_mut(&mut self) -> &mut idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
-                    &mut self.vertices
-                }
-
-                fn next_vertex_id(&self) -> crate::vertex::IdType {
-                    self.next_vertex_id
-                }
-
-                fn next_vertex_id_mut(&mut self) -> &mut crate::vertex::IdType {
-                    &mut self.next_vertex_id
-                }
+            fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::V {
+                &mut self.value
             }
         }
-    }
+    };
+}
 
-    /// Storage for a vertex
-    pub trait Vertex {
-        type V;
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_higher_vertex {
+    ($name:ident<$v:ident>) => {
+        impl<$v> crate::vertex::HigherVertex for $name<$v> {
+            fn source<L: crate::private::Lock>(&self) -> VertexId {
+                self.source
+            }
 
-        fn new(id: VertexId, value: Self::V) -> Self;
+            fn source_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId {
+                &mut self.source
+            }
 
-        fn to_value(self) -> Self::V;
+            fn target<L: crate::private::Lock>(&self) -> VertexId {
+                self.target
+            }
 
-        fn value(&self) -> &Self::V;
+            fn target_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId {
+                &mut self.target
+            }
+        }
+    };
+}
 
-        fn value_mut(&mut self) -> &mut Self::V;
-    }
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_has_vertices {
+    ($vertex:ident<$v:ident>) => {
+        type Vertex = $vertex<$v>;
 
-    /// Extra storage for a vertex in a mesh that contains edges
-    pub trait HigherVertex: Vertex {
-        fn source(&self) -> VertexId;
+        fn from_v_r<
+            VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::Vertex>::V)>,
+            L: crate::private::Lock,
+        >(vertices: VI) -> Self {
+            let mut mesh = Self::default();
+            mesh.extend_vertices_with_ids(vertices);
+            mesh
+        }
 
-        fn source_mut(&mut self) -> &mut VertexId;
+        fn into_v_r<L: crate::private::Lock>(self) -> crate::vertex::IntoVertices<Self::Vertex> {
+            use crate::vertex::Vertex;
+            self.vertices.into_iter().map(|(id, v)| (id, v.to_value::<crate::private::Key>()))
+        }
 
-        fn target(&self) -> VertexId;
+        fn vertices_r<L: crate::private::Lock>(&self) -> &idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
+            &self.vertices
+        }
 
-        fn target_mut(&mut self) -> &mut VertexId;
-    }
+        fn vertices_r_mut<L: crate::private::Lock>(&mut self) -> &mut idmap::OrderedIdMap<crate::vertex::VertexId, Self::Vertex> {
+            &mut self.vertices
+        }
 
-    pub trait HasVertices {
-        type Vertex: Vertex;
+        fn next_vertex_id<L: crate::private::Lock>(&self) -> crate::vertex::IdType {
+            self.next_vertex_id
+        }
 
-        fn from_v_r<VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>>(vertices: VI) -> Self;
-
-        fn into_v_r(self) -> IntoVertices<Self::Vertex>;
-
-        fn vertices_r(&self) -> &OrderedIdMap<VertexId, Self::Vertex>;
-
-        fn vertices_r_mut(&mut self) -> &mut OrderedIdMap<VertexId, Self::Vertex>;
-
-        fn next_vertex_id(&self) -> IdType;
-
-        fn next_vertex_id_mut(&mut self) -> &mut IdType;
-    }
-
-    /// Removes higher-order simplexes that contain some vertex
-    pub trait RemoveVertexHigher: HasVertices {
-        fn remove_vertex_higher(&mut self, vertex: VertexId);
-    }
-
-    /// Clears higher-order simplexes
-    pub trait ClearVerticesHigher: HasVertices {
-        fn clear_vertices_higher(&mut self);
+        fn next_vertex_id_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::IdType {
+            &mut self.next_vertex_id
+        }
     }
 }
+

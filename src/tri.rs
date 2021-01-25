@@ -9,15 +9,15 @@ use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
 use typenum::Bit;
 
-use crate::{edge::{IntoEdges, internal::{Edge, HasEdges as HasEdgesIntr, Link}}, vertex::IntoVertices};
+use crate::{edge::{IntoEdges, Edge, Link}, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
-use crate::vertex::internal::{HasVertices as HasVerticesIntr, HigherVertex};
+use crate::vertex::HigherVertex;
 use crate::vertex::HasVertices;
-use crate::{edge::internal::HigherEdge, vertex::VertexId};
+use crate::{edge::HigherEdge, vertex::VertexId};
 use crate::{
     edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut},
     tet::{HasTets, TetWalker},
-    vertex::{internal::Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
+    vertex::{Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 use crate::private::{Lock, Key};
 
@@ -315,7 +315,7 @@ where
     where
         Self::Tri: Tri<Mwb = typenum::B1>,
     {
-        let opp = self.edges_r()[&edge].tri_opp();
+        let opp = self.edges_r::<Key>()[&edge].tri_opp::<Key>();
         if opp != edge.0[0] {
             Some(opp)
         } else {
@@ -377,7 +377,7 @@ where
             let mut opps = [Link::dummy(VertexId::dummy); 3];
 
             for (i, (edge, opp)) in id.edges_and_opp().iter().enumerate() {
-                let target = self.edges_r()[edge].tri_opp();
+                let target = self.edges_r::<Key>()[edge].tri_opp::<Key>();
 
                 let (prev, next) =
                     if target == edge.0[0] || <<Self::Tri as Tri>::Mwb as Bit>::BOOL {
@@ -391,7 +391,7 @@ where
                             self.remove_edge(EdgeId([target, edge.0[0]]));
                         }
                         // First tri from edge
-                        *self.edges_r_mut().get_mut(edge).unwrap().tri_opp_mut() = *opp;
+                        *self.edges_r_mut::<Key>().get_mut(edge).unwrap().tri_opp_mut::<Key>() = *opp;
                         (*opp, *opp)
                     } else {
                         let side = [edge.0[0], edge.0[1], target].try_into().ok().unwrap();
@@ -487,12 +487,12 @@ where
                     next
                 };
 
-                let source = self.edges_r_mut().get_mut(&edge).unwrap();
+                let source = self.edges_r_mut::<Key>().get_mut(&edge).unwrap();
                 if *opp == next {
                     // this was the last tri from the edge
-                    *source.tri_opp_mut() = edge.0[0];
-                } else if *opp == source.tri_opp() {
-                    *source.tri_opp_mut() = next;
+                    *source.tri_opp_mut::<Key>() = edge.0[0];
+                } else if *opp == source.tri_opp::<Key>() {
+                    *source.tri_opp_mut::<Key>() = next;
                 }
             }
 
@@ -542,8 +542,8 @@ where
         self.tris_r_mut::<Key>().clear();
 
         // Fix edge-target links
-        for (id, edge) in self.edges_r_mut() {
-            *edge.tri_opp_mut() = id.0[0];
+        for (id, edge) in self.edges_r_mut::<Key>() {
+            *edge.tri_opp_mut::<Key>() = id.0[0];
         }
     }
 
@@ -578,9 +578,9 @@ where
 pub struct TriWalker<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     mesh: &'a M,
@@ -591,9 +591,9 @@ where
 impl<'a, M: ?Sized> Clone for TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     fn clone(&self) -> Self {
@@ -608,9 +608,9 @@ where
 impl<'a, M: ?Sized> Copy for TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
 }
@@ -618,9 +618,9 @@ where
 impl<'a, M: ?Sized> TriWalker<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     pub(crate) fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: VertexId) -> Self {
@@ -633,8 +633,8 @@ where
 
     pub(crate) fn from_edge<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
-        let opp = mesh.edges_r()[&edge].tri_opp();
-        let _: TriId = [edge.0[0], edge.0[1], mesh.edges_r()[&edge].tri_opp()]
+        let opp = mesh.edges_r::<Key>()[&edge].tri_opp::<Key>();
+        let _: TriId = [edge.0[0], edge.0[1], mesh.edges_r::<Key>()[&edge].tri_opp::<Key>()]
             .try_into()
             .ok()?;
         Some(Self::new(mesh, edge, opp))
@@ -762,9 +762,9 @@ where
 pub struct VertexEdgeOpps<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     mesh: &'a M,
@@ -775,9 +775,9 @@ where
 impl<'a, M: ?Sized> Iterator for VertexEdgeOpps<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     type Item = EdgeId;
@@ -807,9 +807,9 @@ where
 pub struct EdgeVertexOpps<'a, M: ?Sized>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     pub(crate) walker: TriWalker<'a, M>,
@@ -820,9 +820,9 @@ where
 impl<'a, M: ?Sized> Iterator for EdgeVertexOpps<'a, M>
 where
     M: HasVertices,
-    <M as HasVerticesIntr>::Vertex: HigherVertex,
+    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
-    <M as HasEdgesIntr>::Edge: HigherEdge,
+    <M as HasEdges>::Edge: HigherEdge,
     M: HasTris,
 {
     type Item = VertexId;
@@ -904,19 +904,19 @@ macro_rules! impl_tri {
 
             fn new<L: crate::private::Lock>(
                 $id: crate::vertex::VertexId,
-                $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 3],
+                $links: [crate::edge::Link<crate::vertex::VertexId>; 3],
                 $value: Self::F,
             ) -> Self {
                 $new
             }
 
-            fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+            fn links<L: crate::private::Lock>(&self) -> [crate::edge::Link<crate::vertex::VertexId>; 3] {
                 self.links
             }
 
             fn links_mut<L: crate::private::Lock>(
                 &mut self,
-            ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+            ) -> &mut [crate::edge::Link<crate::vertex::VertexId>; 3] {
                 &mut self.links
             }
 
@@ -945,19 +945,19 @@ macro_rules! impl_tri_mwb {
 
             fn new<L: crate::private::Lock>(
                 $id: crate::vertex::VertexId,
-                $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 3],
+                $links: [crate::edge::Link<crate::vertex::VertexId>; 3],
                 $value: Self::F,
             ) -> Self {
                 $new
             }
 
-            fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+            fn links<L: crate::private::Lock>(&self) -> [crate::edge::Link<crate::vertex::VertexId>; 3] {
                 panic!("Cannot get links in \"mwb\" tri")
             }
 
             fn links_mut<L: crate::private::Lock>(
                 &mut self,
-            ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 3] {
+            ) -> &mut [crate::edge::Link<crate::vertex::VertexId>; 3] {
                 panic!("Cannot get links in \"mwb\" tri")
             }
 
@@ -999,10 +999,10 @@ macro_rules! impl_has_tris {
         type Tri = $tri<$f>;
 
         fn from_vef_r<
-            VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
-            EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+            VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::Vertex>::V)>,
+            EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::Edge>::E)>,
             FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::Tri>::F)>,
-            EF: Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
+            EF: Fn() -> <Self::Edge as crate::edge::Edge>::E + Clone,
             L: crate::private::Lock,
         >(
             vertices: VI,
@@ -1022,12 +1022,12 @@ macro_rules! impl_has_tris {
             crate::edge::IntoEdges<Self::Edge>,
             crate::tri::IntoTris<Self::Tri>,
         ) {
-            use crate::vertex::internal::Vertex;
-            use crate::edge::internal::Edge;
+            use crate::vertex::Vertex;
+            use crate::edge::Edge;
             use crate::tri::Tri;
             (
-                self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
-                self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                self.vertices.into_iter().map(|(id, v)| (id, v.to_value::<crate::private::Key>())),
+                self.edges.into_iter().map(|(id, e)| (id, e.to_value::<crate::private::Key>())),
                 self.tris.into_iter().map(|(id, f)| (id, f.to_value::<crate::private::Key>())),
             )
         }
