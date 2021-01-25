@@ -12,7 +12,7 @@ use typenum::Bit;
 use crate::{edge::{EdgeId, HasEdges, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
-    internal::{HasTris as HasTrisIntr, HigherTri, Tri},
+    HigherTri, Tri,
     EdgeVertexOpps,
 };
 use crate::tri::{HasTris, TriId, TriWalker};
@@ -409,7 +409,7 @@ where
     where
         Self::Tet: Tet<Mwb = typenum::B1>,
     {
-        let opp = self.tris_r()[&tri].tet_opp();
+        let opp = self.tris_r::<Key>()[&tri].tet_opp::<Key>();
         if opp != tri.0[0] {
             Some(opp)
         } else {
@@ -473,7 +473,7 @@ where
             let mut opps = [Link::dummy(VertexId::dummy); 4];
 
             for (i, (tri, opp)) in id.tris_and_opp().iter().enumerate() {
-                let target = self.tris_r()[tri].tet_opp();
+                let target = self.tris_r::<Key>()[tri].tet_opp::<Key>();
 
                 let (prev, next) =
                     if target == tri.0[0] || <<Self::Tet as Tet>::Mwb as Bit>::BOOL {
@@ -488,7 +488,7 @@ where
                             self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], target]));
                         }
                         // First tet from tri
-                        *self.tris_r_mut().get_mut(tri).unwrap().tet_opp_mut() = *opp;
+                        *self.tris_r_mut::<Key>().get_mut(tri).unwrap().tet_opp_mut::<Key>() = *opp;
                         (*opp, *opp)
                     } else {
                         let side = [tri.0[0], tri.0[1], tri.0[2], target]
@@ -587,12 +587,12 @@ where
                     next
                 };
 
-                let source = self.tris_r_mut().get_mut(&tri).unwrap();
+                let source = self.tris_r_mut::<Key>().get_mut(&tri).unwrap();
                 if *opp == next {
                     // this was the last tet from the triangle
-                    *source.tet_opp_mut() = tri.0[0];
-                } else if *opp == source.tet_opp() {
-                    *source.tet_opp_mut() = next;
+                    *source.tet_opp_mut::<Key>() = tri.0[0];
+                } else if *opp == source.tet_opp::<Key>() {
+                    *source.tet_opp_mut::<Key>() = next;
                 }
             }
 
@@ -642,8 +642,8 @@ where
         self.tets_r_mut::<Key>().clear();
 
         // Fix tri-target links
-        for (id, tri) in self.tris_r_mut() {
-            *tri.tet_opp_mut() = id.0[0];
+        for (id, tri) in self.tris_r_mut::<Key>() {
+            *tri.tet_opp_mut::<Key>() = id.0[0];
         }
     }
 
@@ -700,7 +700,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -715,7 +715,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     fn clone(&self) -> Self {
@@ -734,7 +734,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
 }
@@ -746,7 +746,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: EJ) -> Self {
@@ -764,7 +764,7 @@ where
     ) -> Option<Self> {
         let edge = edge.try_into().ok().unwrap();
         let tri = [edge.0[0], edge.0[1], vertex].try_into().ok()?;
-        let opp = mesh.tris_r()[&tri].tet_opp();
+        let opp = mesh.tris_r::<Key>()[&tri].tet_opp::<Key>();
         let _: TetId = [edge.0[0], edge.0[1], vertex, opp].try_into().ok()?;
         Some(Self::new(mesh, edge, EdgeId([vertex, opp])))
     }
@@ -959,7 +959,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -974,7 +974,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = TriId;
@@ -1028,7 +1028,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -1043,7 +1043,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = EdgeId;
@@ -1085,7 +1085,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     walker: TetWalker<'a, M>,
@@ -1100,7 +1100,7 @@ where
     M: HasEdges,
     <M as HasEdgesIntr>::Edge: HigherEdge,
     M: HasTris,
-    <M as HasTrisIntr>::Tri: HigherTri,
+    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = VertexId;
@@ -1173,154 +1173,143 @@ where
     }
 }
 
-pub(crate) mod internal {
-    use fnv::FnvHashMap;
-    use typenum::Bit;
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_tet {
+    ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
+        impl<$t> crate::tet::Tet for $name<$t> {
+            type T = $t;
+            type Mwb = typenum::B0;
 
-    use super::{HasTets, IntoTets, TetId};
-    use crate::{edge::{EdgeId, IntoEdges, internal::{Edge, HigherEdge, Link}}, tri::{IntoTris, internal::Tri}, vertex::{IntoVertices, internal::Vertex}};
-    use crate::tri::internal::{HasTris as HasTrisIntr, HigherTri};
-    use crate::tri::TriId;
-    use crate::vertex::internal::HigherVertex;
-    use crate::vertex::VertexId;
-
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_tet {
-        ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$t> crate::tet::Tet for $name<$t> {
-                type T = $t;
-                type Mwb = typenum::B0;
-
-                fn new<L: crate::private::Lock>(
-                    $id: crate::vertex::VertexId,
-                    $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
-                    $value: Self::T,
-                ) -> Self {
-                    $new
-                }
-
-                fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    self.links
-                }
-
-                fn links_mut<L: crate::private::Lock>(
-                    &mut self,
-                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    &mut self.links
-                }
-
-                fn to_value<L: crate::private::Lock>(self) -> Self::T {
-                    self.value
-                }
-
-                fn value<L: crate::private::Lock>(&self) -> &Self::T {
-                    &self.value
-                }
-
-                fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
-                    &mut self.value
-                }
-            }
-        };
-    }
-
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_tet_mwb {
-        ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
-            impl<$t> crate::tet::Tet for $name<$t> {
-                type T = $t;
-                type Mwb = typenum::B1;
-
-                fn new<L: crate::private::Lock>(
-                    $id: crate::vertex::VertexId,
-                    $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
-                    $value: Self::T,
-                ) -> Self {
-                    $new
-                }
-
-                fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    panic!("Cannot get links in \"mwb\" tet")
-                }
-
-                fn links_mut<L: crate::private::Lock>(
-                    &mut self,
-                ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
-                    panic!("Cannot get links in \"mwb\" tet")
-                }
-
-                fn to_value<L: crate::private::Lock>(self) -> Self::T {
-                    self.value
-                }
-
-                fn value<L: crate::private::Lock>(&self) -> &Self::T {
-                    &self.value
-                }
-
-                fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
-                    &mut self.value
-                }
-            }
-        };
-    }
-
-    #[macro_export]
-    #[doc(hidden)]
-    macro_rules! impl_has_tets {
-        ($tet:ident<$t:ident>) => {
-            type Tet = $tet<$t>;
-
-            fn from_veft_r<
-                VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
-                EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
-                FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::internal::Tri>::F)>,
-                TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::Tet>::T)>,
-                FF: Fn() -> <Self::Tri as crate::tri::internal::Tri>::F + Clone,
-                EF: Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
-                L: crate::private::Lock,
-            >(
-                vertices: VI,
-                edges: EI,
-                tris: FI,
-                tets: TI,
-                default_tri_fn: FF,
-                default_edge_fn: EF,
+            fn new<L: crate::private::Lock>(
+                $id: crate::vertex::VertexId,
+                $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
+                $value: Self::T,
             ) -> Self {
-                let mut mesh = Self::default();
-                mesh.extend_vertices_with_ids(vertices);
-                mesh.extend_edges(edges);
-                mesh.extend_tris(tris, default_edge_fn.clone());
-                mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
-                mesh
+                $new
             }
 
-            fn into_veft_r<L: crate::private::Lock>(self) -> (
-                crate::vertex::IntoVertices<Self::Vertex>,
-                crate::edge::IntoEdges<Self::Edge>,
-                crate::tri::IntoTris<Self::Tri>,
-                crate::tet::IntoTets<Self::Tet>,
-            ) {
-                use crate::vertex::internal::Vertex;
-                use crate::edge::internal::Edge;
-                use crate::tri::internal::Tri;
-                use crate::tet::Tet;
-                (
-                    self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
-                    self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
-                    self.tris.into_iter().map(|(id, f)| (id, f.to_value())),
-                    self.tets.into_iter().map(|(id, t)| (id, t.to_value::<crate::private::Key>())),
-                )
+            fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                self.links
             }
 
-            fn tets_r<L: crate::private::Lock>(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
-                &self.tets
+            fn links_mut<L: crate::private::Lock>(
+                &mut self,
+            ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                &mut self.links
             }
 
-            fn tets_r_mut<L: crate::private::Lock>(&mut self) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
-                &mut self.tets
+            fn to_value<L: crate::private::Lock>(self) -> Self::T {
+                self.value
             }
-        };
-    }
+
+            fn value<L: crate::private::Lock>(&self) -> &Self::T {
+                &self.value
+            }
+
+            fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
+                &mut self.value
+            }
+        }
+    };
 }
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_tet_mwb {
+    ($name:ident<$t:ident>, new |$id:ident, $links:ident, $value:ident| $new:expr) => {
+        impl<$t> crate::tet::Tet for $name<$t> {
+            type T = $t;
+            type Mwb = typenum::B1;
+
+            fn new<L: crate::private::Lock>(
+                $id: crate::vertex::VertexId,
+                $links: [crate::edge::internal::Link<crate::vertex::VertexId>; 4],
+                $value: Self::T,
+            ) -> Self {
+                $new
+            }
+
+            fn links<L: crate::private::Lock>(&self) -> [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                panic!("Cannot get links in \"mwb\" tet")
+            }
+
+            fn links_mut<L: crate::private::Lock>(
+                &mut self,
+            ) -> &mut [crate::edge::internal::Link<crate::vertex::VertexId>; 4] {
+                panic!("Cannot get links in \"mwb\" tet")
+            }
+
+            fn to_value<L: crate::private::Lock>(self) -> Self::T {
+                self.value
+            }
+
+            fn value<L: crate::private::Lock>(&self) -> &Self::T {
+                &self.value
+            }
+
+            fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::T {
+                &mut self.value
+            }
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_has_tets {
+    ($tet:ident<$t:ident>) => {
+        type Tet = $tet<$t>;
+
+        fn from_veft_r<
+            VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::internal::Vertex>::V)>,
+            EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::internal::Edge>::E)>,
+            FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::Tri>::F)>,
+            TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::Tet>::T)>,
+            FF: Fn() -> <Self::Tri as crate::tri::Tri>::F + Clone,
+            EF: Fn() -> <Self::Edge as crate::edge::internal::Edge>::E + Clone,
+            L: crate::private::Lock,
+        >(
+            vertices: VI,
+            edges: EI,
+            tris: FI,
+            tets: TI,
+            default_tri_fn: FF,
+            default_edge_fn: EF,
+        ) -> Self {
+            let mut mesh = Self::default();
+            mesh.extend_vertices_with_ids(vertices);
+            mesh.extend_edges(edges);
+            mesh.extend_tris(tris, default_edge_fn.clone());
+            mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
+            mesh
+        }
+
+        fn into_veft_r<L: crate::private::Lock>(self) -> (
+            crate::vertex::IntoVertices<Self::Vertex>,
+            crate::edge::IntoEdges<Self::Edge>,
+            crate::tri::IntoTris<Self::Tri>,
+            crate::tet::IntoTets<Self::Tet>,
+        ) {
+            use crate::vertex::internal::Vertex;
+            use crate::edge::internal::Edge;
+            use crate::tri::Tri;
+            use crate::tet::Tet;
+            (
+                self.vertices.into_iter().map(|(id, v)| (id, v.to_value())),
+                self.edges.into_iter().map(|(id, e)| (id, e.to_value())),
+                self.tris.into_iter().map(|(id, f)| (id, f.to_value::<crate::private::Key>())),
+                self.tets.into_iter().map(|(id, t)| (id, t.to_value::<crate::private::Key>())),
+            )
+        }
+
+        fn tets_r<L: crate::private::Lock>(&self) -> &FnvHashMap<crate::tet::TetId, Self::Tet> {
+            &self.tets
+        }
+
+        fn tets_r_mut<L: crate::private::Lock>(&mut self) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
+            &mut self.tets
+        }
+    };
+}
+

@@ -41,7 +41,6 @@ pub struct ComboMesh3<V, E, F, T> {
 }
 crate::impl_has_vertices!(ComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(ComboMesh3<V, E, F, T>, HigherEdge);
-crate::impl_has_tris!(ComboMesh3<V, E, F, T>, HigherTri);
 crate::impl_index_vertex!(ComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
@@ -49,7 +48,18 @@ crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
+    crate::impl_has_tris!(HigherTri<F>);
+
+    fn remove_tri_higher<L: Lock>(&mut self, tri: TriId) {
+        self.remove_tets(self.tri_tets(tri).collect::<Vec<_>>());
+    }
+
+    fn clear_tris_higher<L: Lock>(&mut self) {
+        self.tets.clear();
+    }
+}
+
 impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
     crate::impl_has_tets!(Tet<T>);
     
@@ -100,7 +110,6 @@ pub struct MwbComboMesh3<V, E, F, T> {
 }
 crate::impl_has_vertices!(MwbComboMesh3<V, E, F, T>, HigherVertex);
 crate::impl_has_edges!(MwbComboMesh3<V, E, F, T>, HigherEdge);
-crate::impl_has_tris!(MwbComboMesh3<V, E, F, T>, HigherTri);
 crate::impl_index_vertex!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
@@ -108,7 +117,24 @@ crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {}
 impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {}
-impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {}
+impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
+    crate::impl_has_tris!(HigherTri<F>);
+
+    fn remove_tri_higher<L: Lock>(&mut self, tri: TriId) {
+        self.tri_vertex_opp(tri).map(|opp| {
+            self.remove_tet_keep_tris(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp]));
+            // Be careful not to remove `tri` as it will be removed after this function
+            self.remove_tri(TriId::from_valid([opp, tri.0[2], tri.0[1]]));
+            self.remove_tri(TriId::from_valid([tri.0[2], opp, tri.0[0]]));
+            self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], opp]));
+        });
+    }
+
+    fn clear_tris_higher<L: Lock>(&mut self) {
+        self.tets.clear();
+    }
+}
+
 impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_tets!(MwbTet<T>);
 
@@ -141,7 +167,6 @@ mod internal {
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
     use crate::tet::{HasTets, TetId};
-    use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
     use crate::tri::{HasTris, TriId};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
@@ -229,18 +254,6 @@ mod internal {
         }
     }
 
-    impl<V, E, F, T> RemoveTriHigher for ComboMesh3<V, E, F, T> {
-        fn remove_tri_higher(&mut self, tri: TriId) {
-            self.remove_tets(self.tri_tets(tri).collect::<Vec<_>>());
-        }
-    }
-
-    impl<V, E, F, T> ClearTrisHigher for ComboMesh3<V, E, F, T> {
-        fn clear_tris_higher(&mut self) {
-            self.tets.clear();
-        }
-    }
-
     impl<V, E, F, T> RemoveVertexHigher for MwbComboMesh3<V, E, F, T> {
         fn remove_vertex_higher(&mut self, vertex: VertexId) {
             self.remove_edges(
@@ -269,24 +282,6 @@ mod internal {
         fn clear_edges_higher(&mut self) {
             self.tets.clear();
             self.tris.clear();
-        }
-    }
-
-    impl<V, E, F, T> RemoveTriHigher for MwbComboMesh3<V, E, F, T> {
-        fn remove_tri_higher(&mut self, tri: TriId) {
-            self.tri_vertex_opp(tri).map(|opp| {
-                self.remove_tet_keep_tris(TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp]));
-                // Be careful not to remove `tri` as it will be removed after this function
-                self.remove_tri(TriId::from_valid([opp, tri.0[2], tri.0[1]]));
-                self.remove_tri(TriId::from_valid([tri.0[2], opp, tri.0[0]]));
-                self.remove_tri(TriId::from_valid([tri.0[1], tri.0[0], opp]));
-            });
-        }
-    }
-
-    impl<V, E, F, T> ClearTrisHigher for MwbComboMesh3<V, E, F, T> {
-        fn clear_tris_higher(&mut self) {
-            self.tets.clear();
         }
     }
 }

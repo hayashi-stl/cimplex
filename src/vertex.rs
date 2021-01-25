@@ -12,9 +12,8 @@ use typenum::B1;
 
 use internal::{ClearVerticesHigher, HasVertices as HasVerticesIntr, RemoveVertexHigher, Vertex};
 
-use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::HasTets, tri::{HasTris, internal::{HigherTri, Tri}}};
+use crate::{edge::{HasEdges, internal::{Edge, HigherEdge}}, tet::HasTets, tri::{HasTris, HigherTri, Tri}};
 use crate::edge::internal::HasEdges as HasEdgesIntr;
-use crate::tri::internal::HasTris as HasTrisIntr;
 use crate::tet::Tet;
 use crate::private::Key;
 
@@ -273,7 +272,7 @@ where
     /// Turns this mesh into a Delaunay tetrahedralization of its vertices
     fn delaunay_tets<M>(self,
         tet_value_fn: impl Fn() -> <<M as HasTets>::Tet as Tet>::T,
-        tri_value_fn: impl Fn() -> <<M as HasTrisIntr>::Tri as Tri>::F + Clone,
+        tri_value_fn: impl Fn() -> <<M as HasTris>::Tri as Tri>::F + Clone,
         edge_value_fn: impl Fn() -> <<M as HasEdgesIntr>::Edge as Edge>::E + Clone,
         v_rest_fn: impl Fn() -> <<Self::Vertex as Vertex>::V as Position>::Rest,
     ) -> M where
@@ -283,7 +282,7 @@ where
         M: HasEdges,
         <M as HasEdgesIntr>::Edge: HigherEdge,
         M: HasTris,
-        <M as HasTrisIntr>::Tri: HigherTri,
+        <M as HasTris>::Tri: HigherTri,
         M: HasTets,
         <M as HasTets>::Tet: Tet<Mwb = B1>,
     {

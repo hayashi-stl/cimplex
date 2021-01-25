@@ -10,6 +10,7 @@ use crate::mesh1::internal::HigherVertex;
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, IdType, VertexId};
 use crate::PtN;
+use crate::private::Lock;
 
 use internal::{HigherEdge, MwbTri, Tri};
 
@@ -32,14 +33,19 @@ pub struct ComboMesh2<V, E, F> {
 }
 crate::impl_has_vertices!(ComboMesh2<V, E, F>, HigherVertex);
 crate::impl_has_edges!(ComboMesh2<V, E, F>, HigherEdge);
-crate::impl_has_tris!(ComboMesh2<V, E, F>, Tri);
 crate::impl_index_vertex!(ComboMesh2<V, E, F>);
 crate::impl_index_edge!(ComboMesh2<V, E, F>);
 crate::impl_index_tri!(ComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {}
 impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {}
-impl<V, E, F> HasTris for ComboMesh2<V, E, F> {}
+impl<V, E, F> HasTris for ComboMesh2<V, E, F> {
+    crate::impl_has_tris!(Tri<F>);
+
+    fn remove_tri_higher<L: Lock>(&mut self, _: TriId) {}
+
+    fn clear_tris_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E, F> Default for ComboMesh2<V, E, F> {
     fn default() -> Self {
@@ -81,14 +87,19 @@ pub struct MwbComboMesh2<V, E, F> {
 }
 crate::impl_has_vertices!(MwbComboMesh2<V, E, F>, HigherVertex);
 crate::impl_has_edges!(MwbComboMesh2<V, E, F>, HigherEdge);
-crate::impl_has_tris!(MwbComboMesh2<V, E, F>, MwbTri);
 crate::impl_index_vertex!(MwbComboMesh2<V, E, F>);
 crate::impl_index_edge!(MwbComboMesh2<V, E, F>);
 crate::impl_index_tri!(MwbComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {}
 impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {}
-impl<V, E, F> HasTris for MwbComboMesh2<V, E, F> {}
+impl<V, E, F> HasTris for MwbComboMesh2<V, E, F> {
+    crate::impl_has_tris!(MwbTri<F>);
+
+    fn remove_tri_higher<L: Lock>(&mut self, _: TriId) {}
+
+    fn clear_tris_higher<L: Lock>(&mut self) {}
+}
 
 impl<V, E, F> Default for MwbComboMesh2<V, E, F> {
     fn default() -> Self {
@@ -112,7 +123,6 @@ pub(crate) mod internal {
     use super::{ComboMesh2, MwbComboMesh2};
     use crate::edge::internal::{ClearEdgesHigher, Link, RemoveEdgeHigher};
     use crate::edge::{EdgeId, HasEdges};
-    use crate::tri::internal::{ClearTrisHigher, RemoveTriHigher};
     use crate::tri::{HasTris, TriId};
     use crate::vertex::internal::{ClearVerticesHigher, RemoveVertexHigher};
     use crate::vertex::VertexId;
@@ -194,14 +204,6 @@ pub(crate) mod internal {
         }
     }
 
-    impl<V, E, F> RemoveTriHigher for ComboMesh2<V, E, F> {
-        fn remove_tri_higher(&mut self, _: TriId) {}
-    }
-
-    impl<V, E, F> ClearTrisHigher for ComboMesh2<V, E, F> {
-        fn clear_tris_higher(&mut self) {}
-    }
-
     impl<V, E, F> ClearVerticesHigher for MwbComboMesh2<V, E, F> {
         fn clear_vertices_higher(&mut self) {
             self.tris.clear();
@@ -234,14 +236,6 @@ pub(crate) mod internal {
         fn clear_edges_higher(&mut self) {
             self.tris.clear();
         }
-    }
-
-    impl<V, E, F> RemoveTriHigher for MwbComboMesh2<V, E, F> {
-        fn remove_tri_higher(&mut self, _: TriId) {}
-    }
-
-    impl<V, E, F> ClearTrisHigher for MwbComboMesh2<V, E, F> {
-        fn clear_tris_higher(&mut self) {}
     }
 }
 
