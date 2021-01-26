@@ -66,7 +66,7 @@ impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
     crate::impl_has_edges!(HigherEdge<E>);
 
     fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
-        self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+        self.remove_tris_keep_edges(self.edge_tris(edge).collect::<Vec<_>>());
     }
 
     fn clear_edges_higher<L: Lock>(&mut self) {
@@ -79,7 +79,7 @@ impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
     crate::impl_has_tris!(HigherTri<F>);
 
     fn remove_tri_higher<L: Lock>(&mut self, tri: TriId) {
-        self.remove_tets(self.tri_tets(tri).collect::<Vec<_>>());
+        self.remove_tets_keep_tris(self.tri_tets(tri).collect::<Vec<_>>());
     }
 
     fn clear_tris_higher<L: Lock>(&mut self) {
@@ -162,7 +162,20 @@ impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_edges!(HigherEdge<E>);
 
     fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
-        self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+        // Preserve purity, and don't remove `edge` prematurely
+        let mut opps = self.edge_vertex_opps(edge).collect::<Vec<_>>();
+        if let Some(opp) = opps.first().copied() {
+            self.remove_tris(opps.drain(1..).map(|v| TriId::from_valid([edge.0[0], edge.0[1], v])));
+            self.remove_tri_keep_edges(TriId::from_valid([edge.0[0], edge.0[1], opp]));
+
+            // Edges don't have the mwb property here, so check if there are triangles around them
+            if self.edge_vertex_opps(EdgeId([edge.0[1], opp])).count() == 0 {
+                self.remove_edge(EdgeId([edge.0[1], opp]));
+            }
+            if self.edge_vertex_opps(EdgeId([opp, edge.0[0]])).count() == 0 {
+                self.remove_edge(EdgeId([opp, edge.0[0]]));
+            }
+        }
     }
 
     fn clear_edges_higher<L: Lock>(&mut self) {
@@ -579,39 +592,88 @@ mod tests {
     #[test]
     fn test_remove_vertex() {
         let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5]);
-        let edges = vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[1], ids[3]], 3),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_edges(edges.clone());
+        mesh.extend_tets(tets.clone(), || 0, || 0);
 
-        mesh.remove_vertex(ids[4]); // edgeless vertex
-        assert_vertices(
-            &mesh,
-            vec![(ids[0], 3), (ids[1], 6), (ids[2], 9), (ids[3], 2)],
-        );
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[0], ids[3]], 5),
-                ([ids[1], ids[3]], 3),
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-                ([ids[1], ids[2]], 9),
-            ],
-        );
+        assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 30);
+        assert_eq!(mesh.num_tris(), 17);
+        assert_tets(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
 
-        mesh.remove_vertex(ids[1]); // vertex with edge
-        assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
+        assert_eq!(mesh.remove_vertex(ids[3]), Some(2)); // Multiple tets should be removed
+        assert_eq!(mesh.num_edges(), 20);
+        assert_eq!(mesh.num_tris(), 7);
+        assert_tets(&mesh, vec![
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+    }
 
-        mesh.remove_vertex(ids[4]); // nonexistent vertex
-        assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2)]);
-        assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
+    #[test]
+    fn test_remove_edge() {
+        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 35);
+        assert_eq!(mesh.num_tris(), 19);
+        assert_tets(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+
+        assert_eq!(mesh.remove_edge([ids[2], ids[3]]), Some(0)); // Multiple tets should be removed
+        assert_eq!(mesh.num_edges(), 34);
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets(&mesh, vec![
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+    }
+
+    #[test]
+    fn test_remove_tri() {
+        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 34);
+        assert_eq!(mesh.num_tris(), 19);
+        assert_tets(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
     }
 
     #[test]
@@ -634,151 +696,6 @@ mod tests {
         let id2 = mesh.add_vertex(6);
         assert_vertices(&mesh, vec![(ids[0], 3), (ids[2], 9), (ids[3], 2), (id2, 6)]);
         assert_edges(&mesh, vec![([ids[0], ids[3]], 5), ([ids[2], ids[3]], 8)]);
-    }
-
-    #[test]
-    fn test_remove_edge() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        let edges = vec![
-            ([ids[0], ids[3]], 5),
-            ([ids[1], ids[3]], 3),
-            ([ids[3], ids[1]], 2),
-            ([ids[2], ids[3]], 8),
-            ([ids[1], ids[2]], 9),
-        ];
-        mesh.extend_edges(edges.clone());
-
-        mesh.remove_edge([ids[1], ids[3]]); // first outgoing edge from vertex
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[0], ids[3]], 5),
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-                ([ids[1], ids[2]], 9),
-            ],
-        );
-
-        mesh.remove_edge([ids[1], ids[2]]); // last outgoing edge from vertex
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[0], ids[3]], 5),
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-            ],
-        );
-
-        mesh.remove_edge([ids[3], ids[0]]); // nonexistent edge
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[0], ids[3]], 5),
-                ([ids[3], ids[1]], 2),
-                ([ids[2], ids[3]], 8),
-            ],
-        );
-    }
-
-    #[test]
-    fn test_remove_tri() {
-        let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
-        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4]);
-        let tris = vec![
-            ([ids[0], ids[1], ids[2]], 1),
-            ([ids[3], ids[1], ids[2]], 2),
-            ([ids[4], ids[2], ids[1]], 3),
-            ([ids[4], ids[1], ids[5]], 4),
-            ([ids[5], ids[6], ids[4]], 5),
-            ([ids[4], ids[6], ids[5]], 6),
-        ];
-        mesh.extend_tris(tris, || 0);
-
-        assert_eq!(mesh.remove_tri([ids[0], ids[1], ids[2]]), Some(1)); // first tri with edge
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[1], ids[2]], 0),
-                ([ids[3], ids[1]], 0),
-                ([ids[2], ids[3]], 0),
-                ([ids[4], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[4]], 0),
-                ([ids[4], ids[1]], 0),
-                ([ids[1], ids[5]], 0),
-                ([ids[5], ids[4]], 0),
-                ([ids[5], ids[6]], 0),
-                ([ids[6], ids[4]], 0),
-                ([ids[4], ids[5]], 0),
-                ([ids[4], ids[6]], 0),
-                ([ids[6], ids[5]], 0),
-            ],
-        );
-        assert_tris(
-            &mesh,
-            vec![
-                ([ids[3], ids[1], ids[2]], 2),
-                ([ids[4], ids[2], ids[1]], 3),
-                ([ids[4], ids[1], ids[5]], 4),
-                ([ids[5], ids[6], ids[4]], 5),
-                ([ids[4], ids[6], ids[5]], 6),
-            ],
-        );
-
-        assert_eq!(mesh.remove_tri([ids[3], ids[1], ids[2]]), Some(2)); // last tri with edge
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[4], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[4]], 0),
-                ([ids[4], ids[1]], 0),
-                ([ids[1], ids[5]], 0),
-                ([ids[5], ids[4]], 0),
-                ([ids[5], ids[6]], 0),
-                ([ids[6], ids[4]], 0),
-                ([ids[4], ids[5]], 0),
-                ([ids[4], ids[6]], 0),
-                ([ids[6], ids[5]], 0),
-            ],
-        );
-        assert_tris(
-            &mesh,
-            vec![
-                ([ids[4], ids[2], ids[1]], 3),
-                ([ids[4], ids[1], ids[5]], 4),
-                ([ids[5], ids[6], ids[4]], 5),
-                ([ids[4], ids[6], ids[5]], 6),
-            ],
-        );
-
-        assert_eq!(mesh.remove_tri([ids[1], ids[2], ids[4]]), None); // nonexistent tri
-        assert_edges(
-            &mesh,
-            vec![
-                ([ids[4], ids[2]], 0),
-                ([ids[2], ids[1]], 0),
-                ([ids[1], ids[4]], 0),
-                ([ids[4], ids[1]], 0),
-                ([ids[1], ids[5]], 0),
-                ([ids[5], ids[4]], 0),
-                ([ids[5], ids[6]], 0),
-                ([ids[6], ids[4]], 0),
-                ([ids[4], ids[5]], 0),
-                ([ids[4], ids[6]], 0),
-                ([ids[6], ids[5]], 0),
-            ],
-        );
-        assert_tris(
-            &mesh,
-            vec![
-                ([ids[4], ids[2], ids[1]], 3),
-                ([ids[4], ids[1], ids[5]], 4),
-                ([ids[5], ids[6], ids[4]], 5),
-                ([ids[4], ids[6], ids[5]], 6),
-            ],
-        );
     }
 
     #[test]
@@ -1495,6 +1412,93 @@ mod tests {
                 ([ids[6], ids[7], ids[4], ids[5]], 6),
             ],
         );
+    }
+
+    #[test]
+    fn test_remove_vertex_m() {
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 30);
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets_m(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+
+        assert_eq!(mesh.remove_vertex(ids[3]), Some(2)); // Multiple tets should be removed
+        assert_eq!(mesh.num_edges(), 12);
+        assert_eq!(mesh.num_tris(), 4);
+        assert_tets_m(&mesh, vec![
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+    }
+
+    #[test]
+    fn test_remove_edge_m() {
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 30);
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets_m(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+
+        assert_eq!(mesh.remove_edge([ids[2], ids[3]]), Some(0)); // Multiple tets should be removed
+        assert_eq!(mesh.num_edges(), 18);
+        assert_eq!(mesh.num_tris(), 8);
+        assert_tets_m(&mesh, vec![
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
+    }
+
+    #[test]
+    fn test_remove_tri_m() {
+        let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
+        let ids = mesh.extend_vertices(vec![3, 6, 9, 2, 5, 8, 1, 4, 7]);
+        let tets = vec![
+            ([ids[1], ids[2], ids[3], ids[0]], 2),
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ];
+        mesh.extend_tets(tets.clone(), || 0, || 0);
+
+        assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
+        assert_eq!(mesh.num_edges(), 30);
+        assert_eq!(mesh.num_tris(), 16);
+        assert_tets_m(&mesh, vec![
+            ([ids[0], ids[2], ids[3], ids[4]], 3),
+            ([ids[2], ids[3], ids[4], ids[5]], 4),
+            ([ids[6], ids[5], ids[4], ids[3]], 5),
+            ([ids[6], ids[7], ids[4], ids[5]], 6),
+        ]);
     }
 
     #[test]

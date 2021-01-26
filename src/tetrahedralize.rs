@@ -1,4 +1,4 @@
-use crate::{edge::{HasEdges, Edge, HigherEdge}, tet::{HasTets, Tet}, tri::{HasTris, HigherTri, Tri}, vertex::{HasPosition3D, HasVertices, Position, HigherVertex, Vertex}};
+use crate::{edge::{Edge, HigherEdge}, tet::{HasTets, Tet}, tri::{HigherTri, Tri}, vertex::{HasPosition3D, Position, HigherVertex, Vertex}};
 use typenum::B1;
 use nalgebra::{Point3, dimension::U3};
 
@@ -15,10 +15,12 @@ pub(crate) fn delaunay_tets<M>(mut mesh: M,
     M::Tet: Tet<Mwb = B1>,
     <M::Vertex as Vertex>::V: Position<Dim = U3>
 {
-    let [min, max] = match mesh.bounding_box() {
-        Some(box_) => box_,
-        None => return mesh, // no points.
-    };
+    // It takes 4 vertices to make a tet
+    if mesh.num_vertices() < 4 {
+        return mesh;
+    }
+
+    let [min, max] = mesh.bounding_box().unwrap();
 
     mesh.add_with_position(Point3::new(0.0, 0.0, 0.0), v_rest_fn());
     mesh

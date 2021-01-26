@@ -56,7 +56,7 @@ impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {
     crate::impl_has_edges!(HigherEdge<E>);
 
     fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
-        self.remove_tris(self.edge_tris(edge).collect::<Vec<_>>());
+        self.remove_tris_keep_edges(self.edge_tris(edge).collect::<Vec<_>>());
     }
 
     fn clear_edges_higher<L: Lock>(&mut self) {
