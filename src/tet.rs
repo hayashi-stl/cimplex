@@ -7,18 +7,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
-use typenum::Bit;
+use typenum::{Bit, B1};
 
 use crate::{edge::{EdgeId, HasEdges, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
-    HigherTri, Tri,
+    Tri,
     EdgeVertexOpps,
 };
 use crate::tri::{HasTris, TriId, TriWalker};
-use crate::vertex::HigherVertex;
 use crate::vertex::HasVertices;
-use crate::{edge::HigherEdge, vertex::VertexId};
+use crate::{vertex::VertexId};
 use crate::{
     edge::{Edge, Link},
     vertex::{Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
@@ -253,13 +252,10 @@ pub trait Tet {
 }
 
 /// For simplicial complexes that can have tetrahedrons.
-pub trait HasTets: HasTris
-where
-    Self::Vertex: HigherVertex,
-    Self::Edge: HigherEdge,
-    Self::Tri: HigherTri,
-{
-    type Tet: Tet;
+pub trait HasTets: HasTris<HigherF = B1> {
+    type Tet: Tet<T = Self::T, Mwb = Self::MwbT>;
+    type T;
+    type MwbT: Bit;
 
     #[doc(hidden)]
     fn from_veft_r<
@@ -289,20 +285,10 @@ where
     fn tets_r_mut<L: Lock>(&mut self) -> &mut FnvHashMap<TetId, Self::Tet>;
 
     #[doc(hidden)]
-    fn remove_tet_higher<L: Lock>(&mut self, tet: TetId) where
-        Self: HasTets,
-        Self::Vertex: HigherVertex,
-        Self::Edge: HigherEdge,
-        Self::Tri: HigherTri,
-        ;
+    fn remove_tet_higher<L: Lock>(&mut self, tet: TetId);
 
     #[doc(hidden)]
-    fn clear_tets_higher<L: Lock>(&mut self) where
-        Self: HasTets,
-        Self::Vertex: HigherVertex,
-        Self::Edge: HigherEdge,
-        Self::Tri: HigherTri,
-        ;
+    fn clear_tets_higher<L: Lock>(&mut self);
 
     /// Gets the number of tetrahedrons.
     fn num_tets(&self) -> usize {
@@ -407,7 +393,7 @@ where
     /// The triangle must exist.
     fn tri_vertex_opp(&self, tri: TriId) -> Option<VertexId>
     where
-        Self::Tet: Tet<Mwb = typenum::B1>,
+        Self: HasTets<MwbT = typenum::B1>,
     {
         let opp = self.tris_r::<Key>()[&tri].tet_opp::<Key>();
         if opp != tri.0[0] {
@@ -430,7 +416,7 @@ where
     /// The triangle must exist.
     fn tri_tet(&self, tri: TriId) -> Option<TetId>
     where
-        Self::Tet: Tet<Mwb = typenum::B1>,
+        Self: HasTets<MwbT = typenum::B1>,
     {
         Some(TetId::from_valid([
             tri.0[0],
@@ -695,12 +681,6 @@ where
 #[derive(Debug)]
 pub struct TetWalker<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -710,12 +690,6 @@ where
 
 impl<'a, M: ?Sized> Clone for TetWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     fn clone(&self) -> Self {
@@ -729,24 +703,12 @@ where
 
 impl<'a, M: ?Sized> Copy for TetWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
 }
 
 impl<'a, M: ?Sized> TetWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     fn new<EI: TryInto<EdgeId>, EJ: TryInto<EdgeId>>(mesh: &'a M, edge: EI, opp: EJ) -> Self {
@@ -954,12 +916,6 @@ where
 #[derive(Clone)]
 pub struct VertexTriOpps<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -969,12 +925,6 @@ where
 
 impl<'a, M: ?Sized> Iterator for VertexTriOpps<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = TriId;
@@ -1023,12 +973,6 @@ where
 #[derive(Clone)]
 pub struct EdgeEdgeOpps<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     mesh: &'a M,
@@ -1038,12 +982,6 @@ where
 
 impl<'a, M: ?Sized> Iterator for EdgeEdgeOpps<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = EdgeId;
@@ -1080,12 +1018,6 @@ where
 #[derive(Clone, Debug)]
 pub struct TriVertexOpps<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     walker: TetWalker<'a, M>,
@@ -1095,12 +1027,6 @@ where
 
 impl<'a, M: ?Sized> Iterator for TriVertexOpps<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
-    M: HasEdges,
-    <M as HasEdges>::Edge: HigherEdge,
-    M: HasTris,
-    <M as HasTris>::Tri: HigherTri,
     M: HasTets,
 {
     type Item = VertexId;
@@ -1156,11 +1082,8 @@ macro_rules! impl_index_tet {
 /// For concrete simplicial complexes with tetrahedrons
 pub trait HasPositionAndTets: HasTets + HasPosition
 where
-    <Self::Vertex as Vertex>::V: Position,
+    Self::V: Position,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
-    Self::Vertex: HigherVertex,
-    Self::Edge: HigherEdge,
-    Self::Tri: HigherTri,
 {
     /// Gets the positions of the vertices of an tetrahedron
     fn tet_positions<TI: TryInto<TetId>>(&self, tet: TI) -> [HasPositionPoint<Self>; 4] {
@@ -1258,8 +1181,10 @@ macro_rules! impl_tet_mwb {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_tets {
-    ($tet:ident<$t:ident>) => {
+    ($tet:ident<$t:ident>, Mwb = $mwb:ty) => {
         type Tet = $tet<$t>;
+        type T = $t;
+        type MwbT = $mwb;
 
         fn from_veft_r<
             VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::Vertex>::V)>,

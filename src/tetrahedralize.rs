@@ -1,4 +1,4 @@
-use crate::{edge::{Edge, HigherEdge}, tet::{HasTets, Tet}, tri::{HigherTri, Tri}, vertex::{HasPosition3D, Position, HigherVertex, Vertex}};
+use crate::{edge::Edge, tet::{HasTets, Tet}, tri::Tri, vertex::{HasPosition3D, Position, Vertex}};
 use typenum::B1;
 use nalgebra::{Point3, dimension::U3};
 
@@ -8,12 +8,8 @@ pub(crate) fn delaunay_tets<M>(mut mesh: M,
     edge_value_fn: impl Fn() -> <M::Edge as Edge>::E + Clone,
     v_rest_fn: impl Fn() -> <<M::Vertex as Vertex>::V as Position>::Rest,
 ) -> M where
-    M: HasTets + HasPosition3D,
-    M::Vertex: HigherVertex,
-    M::Edge: HigherEdge,
-    M::Tri: HigherTri,
-    M::Tet: Tet<Mwb = B1>,
-    <M::Vertex as Vertex>::V: Position<Dim = U3>
+    M: HasTets<MwbT = B1> + HasPosition3D,
+    M::V: Position<Dim = U3>
 {
     // It takes 4 vertices to make a tet
     if mesh.num_vertices() < 4 {

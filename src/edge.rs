@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
-use typenum::Bit;
+use typenum::{Bit, B1};
 
 use crate::{iter::{IteratorExt, MapWith}, tri::{HasTris, TriWalker}, vertex::{HasPosition, IntoVertices}};
 //use crate::tri::{HasTris, TriWalker};
 use crate::vertex::{
-    HigherVertex, Vertex,
+    Vertex,
     HasVertices, VertexId,
 };
 use crate::vertex::{HasPositionDim, HasPositionPoint, Position};
@@ -123,6 +123,7 @@ impl<T> Link<T> {
 pub trait Edge {
     type E;
     type Mwb: Bit;
+    type Higher: Bit;
 
     /// Takes the vertex id of the source, in case
     /// the edge needs to store a dummy value for the opposite vertex
@@ -146,22 +147,20 @@ pub trait Edge {
 
     #[doc(hidden)]
     fn value_mut<L: Lock>(&mut self) -> &mut Self::E;
-}
-
-pub trait HigherEdge: Edge {
-    #[doc(hidden)]
-    fn tri_opp<L: Lock>(&self) -> VertexId;
 
     #[doc(hidden)]
-    fn tri_opp_mut<L: Lock>(&mut self) -> &mut VertexId;
+    fn tri_opp<L: Lock>(&self) -> VertexId where Self: Edge<Higher = B1>;
+
+    #[doc(hidden)]
+    fn tri_opp_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Edge<Higher = B1>;
 }
 
 /// For simplicial complexes that can have edges
-pub trait HasEdges: HasVertices
-where
-    Self::Vertex: HigherVertex,
-{
-    type Edge: Edge;
+pub trait HasEdges: HasVertices<HigherV = B1> {
+    type Edge: Edge<E = Self::E, Mwb = Self::MwbE, Higher = Self::HigherE>;
+    type E;
+    type MwbE: Bit;
+    type HigherE: Bit;
 
     #[doc(hidden)]
     fn from_ve_r<
@@ -250,7 +249,7 @@ where
     /// The vertex must exist.
     fn vertex_target(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Mwb = typenum::B1>,
+        Self: HasEdges<MwbE = B1>,
     {
         let target = self.vertices_r::<Key>()[vertex].target::<Key>();
         if target != vertex {
@@ -271,7 +270,7 @@ where
     /// The vertex must exist.
     fn vertex_edge_out(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Mwb = typenum::B1>,
+        Self: HasEdges<MwbE = B1>,
     {
         Some(EdgeId([vertex, self.vertex_target(vertex)?]))
     }
@@ -299,7 +298,7 @@ where
     /// The vertex must exist.
     fn vertex_source(&self, vertex: VertexId) -> Option<VertexId>
     where
-        Self::Edge: Edge<Mwb = typenum::B1>,
+        Self: HasEdges<MwbE = B1>,
     {
         let source = self.vertices_r::<Key>()[vertex].source::<Key>();
         if source != vertex {
@@ -320,7 +319,7 @@ where
     /// The vertex must exist.
     fn vertex_edge_in(&self, vertex: VertexId) -> Option<EdgeId>
     where
-        Self::Edge: Edge<Mwb = typenum::B1>,
+        Self: HasEdges<MwbE = B1>,
     {
         Some(EdgeId([self.vertex_source(vertex)?, vertex]))
     }
@@ -558,8 +557,6 @@ where
 #[derive(Debug)]
 pub struct EdgeWalker<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     mesh: &'a M,
@@ -568,8 +565,6 @@ where
 
 impl<'a, M: ?Sized> Clone for EdgeWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     fn clone(&self) -> Self {
@@ -582,16 +577,12 @@ where
 
 impl<'a, M: ?Sized> Copy for EdgeWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
 }
 
 impl<'a, M: ?Sized> EdgeWalker<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     pub(crate) fn new<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI) -> Self {
@@ -725,7 +716,6 @@ where
 
     pub fn tri_walker(self) -> Option<TriWalker<'a, M>>
     where
-        <M as HasEdges>::Edge: HigherEdge,
         M: HasTris,
     {
         TriWalker::from_edge(self.mesh, self.edge)
@@ -736,8 +726,6 @@ where
 #[derive(Clone, Debug)]
 pub struct VertexTargets<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     walker: EdgeWalker<'a, M>,
@@ -747,8 +735,6 @@ where
 
 impl<'a, M: ?Sized> Iterator for VertexTargets<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     type Item = VertexId;
@@ -771,8 +757,6 @@ where
 #[derive(Clone, Debug)]
 pub struct VertexSources<'a, M: ?Sized>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     walker: EdgeWalker<'a, M>,
@@ -782,8 +766,6 @@ where
 
 impl<'a, M: ?Sized> Iterator for VertexSources<'a, M>
 where
-    M: HasVertices,
-    <M as HasVertices>::Vertex: HigherVertex,
     M: HasEdges,
 {
     type Item = VertexId;
@@ -838,9 +820,8 @@ macro_rules! impl_index_edge {
 /// For concrete simplicial complexes with edges
 pub trait HasPositionAndEdges: HasEdges + HasPosition
 where
-    <Self::Vertex as Vertex>::V: Position,
+    Self::V: Position,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
-    Self::Vertex: HigherVertex,
 {
     /// Gets the positions of the vertices of an edge.
     /// Assumes the edge exists.
@@ -859,6 +840,7 @@ macro_rules! impl_edge {
         impl<$e> crate::edge::Edge for $name<$e> {
             type E = $e;
             type Mwb = typenum::B0;
+            type Higher = typenum::B0;
 
             fn new<L: crate::private::Lock>(
                 $id: VertexId,
@@ -889,6 +871,14 @@ macro_rules! impl_edge {
             fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::E {
                 &mut self.value
             }
+
+            fn tri_opp<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
+                unreachable!()
+            }
+
+            fn tri_opp_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
+                unreachable!()
+            }
         }
     };
 }
@@ -900,6 +890,7 @@ macro_rules! impl_edge_mwb {
         impl<$e> crate::edge::Edge for $name<$e> {
             type E = $e;
             type Mwb = typenum::B1;
+            type Higher = typenum::B0;
 
             fn new<L: crate::private::Lock>(
                 $id: VertexId,
@@ -930,20 +921,62 @@ macro_rules! impl_edge_mwb {
             fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::E {
                 &mut self.value
             }
+
+            fn tri_opp<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
+                unreachable!()
+            }
+
+            fn tri_opp_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
+                unreachable!()
+            }
         }
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! impl_higher_edge {
-    ($name:ident<$e:ident>) => {
-        impl<$e> crate::edge::HigherEdge for $name<$e> {
-            fn tri_opp<L: crate::private::Lock>(&self) -> crate::vertex::VertexId {
+macro_rules! impl_edge_higher {
+    ($name:ident<$e:ident>, new |$id:ident, $link:ident, $value:ident| $new:expr) => {
+        impl<$e> crate::edge::Edge for $name<$e> {
+            type E = $e;
+            type Mwb = typenum::B0;
+            type Higher = typenum::B1;
+
+            fn new<L: crate::private::Lock>(
+                $id: VertexId,
+                $link: [crate::edge::Link<crate::vertex::VertexId>; 2],
+                $value: Self::E,
+            ) -> Self {
+                $new
+            }
+
+            fn links<L: crate::private::Lock>(&self) -> [crate::edge::Link<crate::vertex::VertexId>; 2] {
+                self.links
+            }
+
+            fn links_mut<L: crate::private::Lock>(
+                &mut self,
+            ) -> &mut [crate::edge::Link<crate::vertex::VertexId>; 2] {
+                &mut self.links
+            }
+
+            fn to_value<L: crate::private::Lock>(self) -> Self::E {
+                self.value
+            }
+
+            fn value<L: crate::private::Lock>(&self) -> &Self::E {
+                &self.value
+            }
+
+            fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::E {
+                &mut self.value
+            }
+
+            fn tri_opp<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
                 self.tri_opp
             }
 
-            fn tri_opp_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId {
+            fn tri_opp_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::edge::Edge<Higher = typenum::B1> {
                 &mut self.tri_opp
             }
         }
@@ -953,8 +986,11 @@ macro_rules! impl_higher_edge {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_edges {
-    ($edge:ident<$e:ident>) => {
+    ($edge:ident<$e:ident>, Mwb = $mwb:ty, Higher = $higher:ty) => {
         type Edge = $edge<$e>;
+        type E = $e;
+        type MwbE = $mwb;
+        type HigherE = $higher;
 
         fn from_ve_r<
             VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::Vertex>::V)>,

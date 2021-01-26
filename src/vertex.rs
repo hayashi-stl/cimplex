@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::iter::Map;
 use alga::general::{MeetSemilattice, JoinSemilattice};
 use nalgebra::dimension::U3;
-use typenum::B1;
+use typenum::{Bit, B1};
 
-use crate::{edge::{HasEdges, Edge, HigherEdge}, tet::HasTets, tri::{HasTris, HigherTri, Tri}};
+use crate::{edge::{HasEdges, Edge}, tet::HasTets, tri::{HasTris, Tri}};
 use crate::tet::Tet;
 use crate::private::{Lock, Key};
 
@@ -117,6 +117,7 @@ macro_rules! V {
 /// Vertex attributes
 pub trait Vertex {
     type V;
+    type Higher: Bit;
 
     #[doc(hidden)]
     fn new<L: Lock>(id: VertexId, value: Self::V) -> Self;
@@ -129,26 +130,25 @@ pub trait Vertex {
 
     #[doc(hidden)]
     fn value_mut<L: Lock>(&mut self) -> &mut Self::V;
-}
-
-/// Extra storage for a vertex in a mesh that contains edges
-pub trait HigherVertex: Vertex {
-    #[doc(hidden)]
-    fn source<L: Lock>(&self) -> VertexId;
 
     #[doc(hidden)]
-    fn source_mut<L: Lock>(&mut self) -> &mut VertexId;
+    fn source<L: Lock>(&self) -> VertexId where Self: Vertex<Higher = B1>;
 
     #[doc(hidden)]
-    fn target<L: Lock>(&self) -> VertexId;
+    fn source_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Vertex<Higher = B1>;
 
     #[doc(hidden)]
-    fn target_mut<L: Lock>(&mut self) -> &mut VertexId;
+    fn target<L: Lock>(&self) -> VertexId where Self: Vertex<Higher = B1>;
+
+    #[doc(hidden)]
+    fn target_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Vertex<Higher = B1>;
 }
 
 /// For simplicial complexes that can have vertices, that is, all of them
 pub trait HasVertices {
-    type Vertex: Vertex;
+    type Vertex: Vertex<V = Self::V, Higher = Self::HigherV>;
+    type V;
+    type HigherV: Bit;
 
     #[doc(hidden)]
     fn from_v_r<VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>, L: Lock>(vertices: VI) -> Self;
@@ -281,7 +281,7 @@ pub trait HasVertices {
 /// For concrete simplicial complexes
 pub trait HasPosition: HasVertices
 where
-    <Self::Vertex as Vertex>::V: Position,
+    Self::V: Position,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {
     /// Gets the position of a vertex. Assumes the vertex exists.
@@ -312,14 +312,14 @@ where
 impl<M> HasPosition for M
 where
     M: HasVertices,
-    <Self::Vertex as Vertex>::V: Position,
+    Self::V: Position,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {}
 
 /// For 3D concrete simplicial complexes
 pub trait HasPosition3D: HasPosition
 where
-    <Self::Vertex as Vertex>::V: Position<Dim = U3>,
+    Self::V: Position<Dim = U3>,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {
     /// Turns this mesh into a Delaunay tetrahedralization of its vertices
@@ -330,11 +330,7 @@ where
         v_rest_fn: impl Fn() -> <<Self::Vertex as Vertex>::V as Position>::Rest,
     ) -> M where
         Self: Sized,
-        M: HasTets,
-        <M as HasVertices>::Vertex: Vertex<V = V!()> + HigherVertex,
-        <M as HasEdges>::Edge: HigherEdge,
-        <M as HasTris>::Tri: HigherTri,
-        <M as HasTets>::Tet: Tet<Mwb = B1>,
+        M: HasTets<MwbT = B1> + HasVertices<V = Self::V>,
     {
         let mesh = M::from_veft_r::<_, _, _, _, _, _, Key>(self.into_v_r::<Key>(), vec![], vec![], vec![],
             tri_value_fn.clone(), edge_value_fn.clone());
@@ -346,7 +342,7 @@ where
 impl<M> HasPosition3D for M
 where
     M: HasVertices,
-    <Self::Vertex as Vertex>::V: Position<Dim = U3>,
+    Self::V: Position<Dim = U3>,
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {}
 
@@ -376,6 +372,7 @@ macro_rules! impl_vertex {
     ($name:ident<$v:ident>, new |$id:ident, $value:ident| $new:expr) => {
         impl<$v> crate::vertex::Vertex for $name<$v> {
             type V = $v;
+            type Higher = typenum::B0;
 
             fn new<L: crate::private::Lock>($id: crate::vertex::VertexId, $value: Self::V) -> Self {
                 $new
@@ -392,28 +389,63 @@ macro_rules! impl_vertex {
             fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::V {
                 &mut self.value
             }
+
+            fn source<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
+                unreachable!()
+            }
+
+            fn source_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
+                unreachable!()
+            }
+
+            fn target<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
+                unreachable!()
+            }
+
+            fn target_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
+                unreachable!()
+            }
         }
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! impl_higher_vertex {
-    ($name:ident<$v:ident>) => {
-        impl<$v> crate::vertex::HigherVertex for $name<$v> {
-            fn source<L: crate::private::Lock>(&self) -> VertexId {
+macro_rules! impl_vertex_higher {
+    ($name:ident<$v:ident>, new |$id:ident, $value:ident| $new:expr) => {
+        impl<$v> crate::vertex::Vertex for $name<$v> {
+            type V = $v;
+            type Higher = typenum::B1;
+
+            fn new<L: crate::private::Lock>($id: crate::vertex::VertexId, $value: Self::V) -> Self {
+                $new
+            }
+
+            fn to_value<L: crate::private::Lock>(self) -> Self::V {
+                self.value
+            }
+
+            fn value<L: crate::private::Lock>(&self) -> &Self::V {
+                &self.value
+            }
+
+            fn value_mut<L: crate::private::Lock>(&mut self) -> &mut Self::V {
+                &mut self.value
+            }
+
+            fn source<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
                 self.source
             }
 
-            fn source_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId {
+            fn source_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
                 &mut self.source
             }
 
-            fn target<L: crate::private::Lock>(&self) -> VertexId {
+            fn target<L: crate::private::Lock>(&self) -> crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
                 self.target
             }
 
-            fn target_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId {
+            fn target_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::VertexId where Self: crate::vertex::Vertex<Higher = typenum::B1> {
                 &mut self.target
             }
         }
@@ -423,8 +455,10 @@ macro_rules! impl_higher_vertex {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_vertices {
-    ($vertex:ident<$v:ident>) => {
+    ($vertex:ident<$v:ident>, Higher = $higher:ty) => {
         type Vertex = $vertex<$v>;
+        type V = $v;
+        type HigherV = $higher;
 
         fn from_v_r<
             VI: IntoIterator<Item = (crate::vertex::VertexId, <Self::Vertex as crate::vertex::Vertex>::V)>,

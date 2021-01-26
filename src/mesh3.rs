@@ -3,7 +3,7 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use typenum::{U2, U3};
+use typenum::{U2, U3, B0, B1};
 
 use crate::{mesh1::internal::HigherVertex, private::Lock};
 use crate::mesh2::internal::HigherEdge;
@@ -45,7 +45,7 @@ crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
-    crate::impl_has_vertices!(HigherVertex<V>);
+    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -63,7 +63,7 @@ impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
-    crate::impl_has_edges!(HigherEdge<E>);
+    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
 
     fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
         self.remove_tris_keep_edges(self.edge_tris(edge).collect::<Vec<_>>());
@@ -76,7 +76,7 @@ impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
-    crate::impl_has_tris!(HigherTri<F>);
+    crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
 
     fn remove_tri_higher<L: Lock>(&mut self, tri: TriId) {
         self.remove_tets_keep_tris(self.tri_tets(tri).collect::<Vec<_>>());
@@ -88,7 +88,7 @@ impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
-    crate::impl_has_tets!(Tet<T>);
+    crate::impl_has_tets!(Tet<T>, Mwb = B0);
     
     fn remove_tet_higher<L: Lock>(&mut self, _: TetId) {}
 
@@ -141,7 +141,7 @@ crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_vertices!(HigherVertex<V>);
+    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -159,7 +159,7 @@ impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_edges!(HigherEdge<E>);
+    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
 
     fn remove_edge_higher<L: Lock>(&mut self, edge: EdgeId) {
         // Preserve purity, and don't remove `edge` prematurely
@@ -185,7 +185,7 @@ impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_tris!(HigherTri<F>);
+    crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
 
     fn remove_tri_higher<L: Lock>(&mut self, tri: TriId) {
         self.tri_vertex_opp(tri).map(|opp| {
@@ -203,7 +203,7 @@ impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_tets!(MwbTet<T>);
+    crate::impl_has_tets!(MwbTet<T>, Mwb = B1);
 
     fn remove_tet_higher<L: Lock>(&mut self, _: TetId) {}
 
@@ -246,7 +246,7 @@ mod internal {
         value: F,
     }
     #[rustfmt::skip]
-    crate::impl_tri!(
+    crate::impl_tri_higher!(
         HigherTri<F>,
         new |id, links, value| {
             HigherTri {
@@ -256,7 +256,6 @@ mod internal {
             }
         }
     );
-    crate::impl_higher_tri!(HigherTri<F>);
 
     /// A tetrahedron of an tet mesh
     #[derive(Clone, Debug)]

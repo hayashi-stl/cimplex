@@ -2,7 +2,7 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
-use typenum::{U2, U3};
+use typenum::{U2, U3, B0};
 
 use crate::vertex::{HasVertices, IdType, VertexId, Vertex as VertexIntr};
 use crate::PtN;
@@ -23,7 +23,7 @@ pub struct ComboMesh0<V> {
 crate::impl_index_vertex!(ComboMesh0<V>);
 
 impl<V> HasVertices for ComboMesh0<V> {
-    crate::impl_has_vertices!(Vertex<V>);
+    crate::impl_has_vertices!(Vertex<V>, Higher = B0);
 
     fn remove_vertex_higher<L: Lock>(&mut self, _: VertexId) {}
 

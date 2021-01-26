@@ -4,7 +4,7 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use typenum::{U2, U3};
+use typenum::{U2, U3, B0, B1};
 
 use crate::vertex::VertexId;
 use crate::{edge, vertex::HasVertices, PtN};
@@ -30,7 +30,7 @@ crate::impl_index_vertex!(ComboMesh1<V, E>);
 crate::impl_index_edge!(ComboMesh1<V, E>);
 
 impl<V, E> HasVertices for ComboMesh1<V, E> {
-    crate::impl_has_vertices!(HigherVertex<V>);
+    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -46,7 +46,7 @@ impl<V, E> HasVertices for ComboMesh1<V, E> {
 }
 
 impl<V, E> HasEdges for ComboMesh1<V, E> {
-    crate::impl_has_edges!(Edge<E>);
+    crate::impl_has_edges!(Edge<E>, Mwb = B0, Higher = B0);
 
     fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
 
@@ -92,7 +92,7 @@ crate::impl_index_vertex!(MwbComboMesh1<V, E>);
 crate::impl_index_edge!(MwbComboMesh1<V, E>);
 
 impl<V, E> HasVertices for MwbComboMesh1<V, E> {
-    crate::impl_has_vertices!(HigherVertex<V>);
+    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.vertex_edge_out(vertex)
@@ -107,7 +107,7 @@ impl<V, E> HasVertices for MwbComboMesh1<V, E> {
 }
 
 impl<V, E> HasEdges for MwbComboMesh1<V, E> {
-    crate::impl_has_edges!(MwbEdge<E>);
+    crate::impl_has_edges!(MwbEdge<E>, Mwb = B1, Higher = B0);
 
     fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
 
@@ -149,8 +149,7 @@ pub(crate) mod internal {
         value: V,
     }
     #[rustfmt::skip]
-    crate::impl_vertex!(HigherVertex<V>, new |id, value| HigherVertex { source: id, target: id, value });
-    crate::impl_higher_vertex!(HigherVertex<V>);
+    crate::impl_vertex_higher!(HigherVertex<V>, new |id, value| HigherVertex { source: id, target: id, value });
 
     /// An edge of an edge mesh
     #[derive(Clone, Debug)]
