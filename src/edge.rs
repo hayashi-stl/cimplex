@@ -149,6 +149,11 @@ pub trait Edge {
     fn tri_opp_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Edge<Higher = B1>;
 }
 
+/// Allows upgrading to a simplicial 1-complex.
+pub trait WithEdges<V, E> {
+    type WithEdges: HasVertices<V = V> + HasEdges<E = E>;
+}
+
 /// For simplicial complexes that can have edges
 pub trait HasEdges: HasVertices<HigherV = B1> {
     type Edge: Edge<E = Self::E, Mwb = Self::MwbE, Higher = Self::HigherE>;

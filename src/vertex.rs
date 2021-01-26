@@ -10,7 +10,7 @@ use alga::general::{MeetSemilattice, JoinSemilattice};
 use nalgebra::dimension::U3;
 use typenum::{Bit, B1};
 
-use crate::{edge::{HasEdges, Edge}, tet::HasTets, tri::{HasTris, Tri}};
+use crate::{edge::{HasEdges, Edge}, tet::{HasTets, WithTets}, tri::{HasTris, Tri}};
 use crate::tet::Tet;
 use crate::private::{Lock, Key};
 
@@ -136,12 +136,6 @@ pub trait Vertex {
 
     #[doc(hidden)]
     fn target_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Vertex<Higher = B1>;
-}
-
-/// Allows upgrading to a simplicial 1-complex.
-pub trait WithEdges<E> {
-    type V;
-    type WithEdges: HasVertices<V = Self::V> + HasEdges<E = E>;
 }
 
 /// For simplicial complexes that can have vertices, that is, all of them
@@ -323,16 +317,16 @@ where
     DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
 {
     /// Turns this mesh into a Delaunay tetrahedralization of its vertices
-    fn delaunay_tets<M>(self,
-        tet_value_fn: impl Fn() -> <<M as HasTets>::Tet as Tet>::T,
-        tri_value_fn: impl Fn() -> <<M as HasTris>::Tri as Tri>::F + Clone,
-        edge_value_fn: impl Fn() -> <<M as HasEdges>::Edge as Edge>::E + Clone,
-        v_rest_fn: impl Fn() -> <Self::V as Position>::Rest,
-    ) -> M where
+    fn delaunay_tets<E, F, T>(self,
+        tet_value_fn: impl Fn() -> T,
+        tri_value_fn: impl Fn() -> F + Clone,
+        edge_value_fn: impl Fn() -> E + Clone,
+        v_rest_fn: impl Fn() -> <<Self as HasVertices>::V as Position>::Rest,
+    ) -> <Self::WithTets as HasTets>::WithMwbT where
         Self: Sized,
-        M: HasTets<MwbT = B1> + HasVertices<V = Self::V>,
+        Self: WithTets<<Self as HasVertices>::V, E, F, T>,
     {
-        let mesh = M::from_veft_r::<_, _, _, _, _, _, Key>(self.into_v_r::<Key>(), vec![], vec![], vec![],
+        let mesh = <Self::WithTets as HasTets>::WithMwbT::from_veft_r::<_, _, _, _, _, _, Key>(self.into_v_r::<Key>(), vec![], vec![], vec![],
             tri_value_fn.clone(), edge_value_fn.clone());
 
         crate::tetrahedralize::delaunay_tets(mesh, tet_value_fn, tri_value_fn, edge_value_fn, v_rest_fn)

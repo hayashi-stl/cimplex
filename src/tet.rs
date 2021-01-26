@@ -232,6 +232,11 @@ pub trait Tet {
     }
 }
 
+/// Allows upgrading to a simplicial 3-complex.
+pub trait WithTets<V, E, F, T> {
+    type WithTets: HasVertices<V = V> + HasEdges<E = E> + HasTris<F = F> + HasTets<T = T>;
+}
+
 /// For simplicial complexes that can have tetrahedrons.
 pub trait HasTets: HasTris<HigherF = B1> {
     type Tet: Tet<T = Self::T, Mwb = Self::MwbT>;

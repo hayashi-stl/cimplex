@@ -177,6 +177,11 @@ pub trait Tri {
     fn tet_opp_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Tri<Higher = B1>;
 }
 
+/// Allows upgrading to a simplicial 2-complex.
+pub trait WithTris<V, E, F> {
+    type WithTris: HasVertices<V = V> + HasEdges<E = E> + HasTris<F = F>;
+}
+
 /// For simplicial complexes that can have triangles
 pub trait HasTris: HasEdges<HigherE = B1> {
     type Tri: Tri<F = Self::F, Mwb = Self::MwbF, Higher = Self::HigherF>;
