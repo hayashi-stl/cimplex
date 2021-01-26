@@ -1,9 +1,9 @@
-use crate::{edge::Edge, tet::{HasTets, Tet, TetId}, tri::Tri, vertex::{HasPosition3D, Position, Vertex, VertexId}};
-use fnv::FnvHashMap;
-use nalgebra::{dimension::U3, Point1, Point3, Vector3};
+use crate::{tet::{HasTets, TetId}, vertex::{HasPosition3D, Position, VertexId}};
+use nalgebra::{dimension::U3, Point1, Vector3};
 use simplicity as sim;
 use typenum::B1;
 use float_ord::FloatOrd;
+use crate::iter;
 
 fn index_fn<M>(mesh: &M, i: VertexId) -> Vector3<f64>
 where
@@ -46,14 +46,27 @@ where
     // If not, there's a floating-point error and we search further.
 
     // TODO: BFS
-    mesh.vertex_tets(vertex)
-        .filter(|tet| in_sphere_with_ghosts(mesh, *tet, new_vertex, ghost))
-        .next()
-        .unwrap()
+    iter::bfs(
+        mesh.vertex_tets(vertex),
+        |tet| mesh.adjacent_tets(*tet),
+        |_| true
+    ).find(|tet| in_sphere_with_ghosts(mesh, *tet, new_vertex, ghost)).unwrap()
+}
+
+fn tets_to_delete<'a, M>(mesh: &'a M, new_vertex: VertexId, ghost: VertexId) -> impl Iterator<Item = TetId> + 'a
+where
+    M: HasTets<MwbT = B1> + HasPosition3D,
+    M::V: Position<Dim = U3>
+{
+    iter::bfs(
+        std::iter::once(find_tet_to_delete(mesh, new_vertex, ghost)),
+        move |tet| mesh.adjacent_tets(*tet),
+        move |tet| in_sphere_with_ghosts(mesh, *tet, new_vertex, ghost)
+    )
 }
 
 /// Implementation of the Bowyer-Watson algorithm,
-/// with ghost triangles 👻 (https://people.eecs.berkeley.edu/~jrs/meshpapers/delnotes.pdf, section 3.4)
+/// with ghost tetrahedrons 👻 (https://people.eecs.berkeley.edu/~jrs/meshpapers/delnotes.pdf, section 3.4)
 /// to avoid the concave tetrahedralization problem that happens with a super tet.
 pub(crate) fn delaunay_tets<M>(
     mut mesh: M,
@@ -70,7 +83,7 @@ where
     let mut v_ids = mesh.vertex_ids().copied().collect::<Vec<_>>();
 
     // Ghost vertex
-    let g = mesh.add_with_position(Point1::new(f64::INFINITY).xxx());
+    let ghost = mesh.add_with_position(Point1::new(f64::INFINITY).xxx());
 
     // First tet
     let v0 = v_ids.pop().unwrap();
@@ -85,7 +98,11 @@ where
 
     // Ghost tets
     for tri in &first.tris() {
-        mesh.add_tet([tri.0[0], tri.0[2], tri.0[1], g], mesh.default_tet());
+        mesh.add_tet([tri.0[0], tri.0[2], tri.0[1], ghost], mesh.default_tet());
+    }
+
+    while let Some(vertex) = v_ids.pop() {
+        let to_delete = tets_to_delete(&mesh, vertex, ghost);
     }
 
     mesh
@@ -93,8 +110,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use fnv::FnvHashSet;
+    use nalgebra::Point3;
+
     use super::*;
-    use crate::{mesh3::MwbComboMesh3, vertex::HasVertices};
+    use crate::{mesh3::MwbComboMesh3};
+    use crate::vertex::HasVertices;
 
     #[test]
     fn test_in_sphere_ghost() {
@@ -129,5 +150,53 @@ mod tests {
         mesh.add_tet(tet, ());
 
         assert!(in_sphere_with_ghosts(&mesh, tet, ids[4], VertexId(5)));
+    }
+
+    #[test]
+    fn test_tets_to_delete() {
+        let mut mesh = MwbComboMesh3::<Point3<f64>, (), (), ()>::with_defaults(|| Point3::origin(), || (), || (), || ());
+        let ids = mesh.extend_vertices(vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(1.0, 1.0, 1.0),
+            Point1::new(f64::INFINITY).xxx(),
+            Point3::new(0.1, 0.1, 0.1),
+            Point3::new(0.1, -0.1, 0.1),
+            Point3::new(-1.0, -1.0, 0.1),
+        ]);
+        mesh.extend_tets(vec![
+            ([ids[0], ids[1], ids[3], ids[2]], ()),
+            ([ids[4], ids[1], ids[2], ids[3]], ()),
+            ([ids[5], ids[0], ids[1], ids[3]], ()),
+            ([ids[5], ids[3], ids[2], ids[0]], ()),
+            ([ids[5], ids[1], ids[0], ids[2]], ()),
+            ([ids[5], ids[4], ids[1], ids[2]], ()),
+            ([ids[5], ids[2], ids[3], ids[4]], ()),
+            ([ids[5], ids[1], ids[4], ids[3]], ()),
+        ]);
+
+        // In convex hull
+        let result = tets_to_delete(&mesh, ids[6], ids[5]).collect::<FnvHashSet<_>>();
+        assert_eq!(result, vec![
+            TetId::from_valid([ids[0], ids[1], ids[3], ids[2]]),
+            TetId::from_valid([ids[4], ids[1], ids[2], ids[3]]),
+        ].into_iter().collect::<FnvHashSet<_>>());
+
+        // Remove both solid tetrahedrons and ghost tetrahedrons
+        let result = tets_to_delete(&mesh, ids[7], ids[5]).collect::<FnvHashSet<_>>();
+        assert_eq!(result, vec![
+            TetId::from_valid([ids[0], ids[1], ids[3], ids[2]]),
+            TetId::from_valid([ids[4], ids[1], ids[2], ids[3]]),
+            TetId::from_valid([ids[5], ids[0], ids[1], ids[3]]),
+        ].into_iter().collect::<FnvHashSet<_>>());
+
+        // Remove only ghost tetrahedrons
+        let result = tets_to_delete(&mesh, ids[8], ids[5]).collect::<FnvHashSet<_>>();
+        assert_eq!(result, vec![
+            TetId::from_valid([ids[5], ids[0], ids[1], ids[3]]),
+            TetId::from_valid([ids[5], ids[3], ids[2], ids[0]]),
+        ].into_iter().collect::<FnvHashSet<_>>());
     }
 }

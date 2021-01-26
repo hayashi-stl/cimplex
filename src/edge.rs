@@ -44,9 +44,29 @@ impl EdgeId {
         self.0
     }
 
+    /// Gets the source vertex.
+    pub fn source(self) -> VertexId {
+        self.0[0]
+    }
+
+    /// Gets the target vertex.
+    pub fn target(self) -> VertexId {
+        self.0[1]
+    }
+
     /// Whether this contains some vertex
     pub fn contains_vertex(self, vertex: VertexId) -> bool {
         self.0.contains(&vertex)
+    }
+
+    /// Gets the opposite vertex of a vertex.
+    pub fn opp_vertex(self, vertex: VertexId) -> VertexId {
+        self.0[1 - self.index(vertex)]
+    }
+
+    /// Gets the index of a vertex, assuming it's part of the edge
+    fn index(self, vertex: VertexId) -> usize {
+        self.0.iter().position(|v| *v == vertex).unwrap()
     }
 
     pub(crate) fn dummy() -> Self {
@@ -94,10 +114,10 @@ pub type EdgesMut<'a, ET> = Map<
 
 /// Iterator over the edges pointing out from a vertex.
 pub type VertexEdgesOut<'a, M> =
-    MapWith<VertexId, EdgeId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+    MapWith<VertexId, VertexTargets<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 /// Iterator over the edges pointing in to a vertex.
 pub type VertexEdgesIn<'a, M> =
-    MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
+    MapWith<VertexId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 
 /// A link. Too lazy to refactor this into an internal module
 #[derive(Clone, Copy, Debug)]

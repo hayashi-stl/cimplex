@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
+use std::vec;
 use typenum::{Bit, B0, B1};
 
-use crate::iter::{IteratorExt, MapWith};
+use crate::iter::{IteratorExt, MapWith, FlatMapWith};
 use crate::private::{Key, Lock};
 use crate::tri::{EdgeVertexOpps, Tri};
 use crate::tri::{HasTris, TriId, TriWalker};
@@ -164,6 +165,35 @@ impl TetId {
         }
     }
 
+    /// Gets the opposite edge of an edge, oriented such
+    /// that the triangle `[edge.source(), edge.target(), self.opp_edge().source()]`
+    /// is a triangle of this tetrahedron.
+    pub fn opp_edge(self, edge: EdgeId) -> EdgeId {
+        let i0 = self.index(edge.0[0]);
+        let i1 = self.index(edge.0[1]);
+        let v = self.0;
+        match (i0, i1) {
+            (0, 1) => EdgeId([v[2], v[3]]),
+            (1, 2) => EdgeId([v[0], v[3]]),
+            (2, 0) => EdgeId([v[1], v[3]]),
+            (3, 2) => EdgeId([v[1], v[0]]),
+            (2, 1) => EdgeId([v[3], v[0]]),
+            (1, 3) => EdgeId([v[2], v[0]]),
+            (2, 3) => EdgeId([v[0], v[1]]),
+            (3, 0) => EdgeId([v[2], v[1]]),
+            (0, 2) => EdgeId([v[3], v[1]]),
+            (1, 0) => EdgeId([v[3], v[2]]),
+            (0, 3) => EdgeId([v[1], v[2]]),
+            (3, 1) => EdgeId([v[0], v[2]]),
+            _ => unreachable!()
+        }
+    }
+
+    /// Gets the opposite vertex of a triangle.
+    pub fn opp_vertex(self, tri: TriId) -> VertexId {
+        self.0[self.opp_index(tri)]
+    }
+
     /// Gets the index of a vertex, assuming it's part of the tetrahedron
     fn index(self, vertex: VertexId) -> usize {
         self.0.iter().position(|v| *v == vertex).unwrap()
@@ -208,12 +238,15 @@ pub type TetsMut<'a, TT> = Map<
 >;
 
 /// Iterator over the tetrahedrons connected to a triangle with the correct winding.
-pub type TriTets<'a, M> = MapWith<TriId, TetId, TriVertexOpps<'a, M>, fn(TriId, VertexId) -> TetId>;
+pub type TriTets<'a, M> = MapWith<TriId, TriVertexOpps<'a, M>, fn(TriId, VertexId) -> TetId>;
 /// Iterator over the tetrahedrons connected to an edge.
-pub type EdgeTets<'a, M> = MapWith<EdgeId, TetId, EdgeEdgeOpps<'a, M>, fn(EdgeId, EdgeId) -> TetId>;
+pub type EdgeTets<'a, M> = MapWith<EdgeId, EdgeEdgeOpps<'a, M>, fn(EdgeId, EdgeId) -> TetId>;
 /// Iterator over the tetrahedrons connected to a vertex.
 pub type VertexTets<'a, M> =
-    MapWith<VertexId, TetId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
+    MapWith<VertexId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
+
+/// Iterator over the adjacent tetrahedrons of a tetrahedron.
+pub type AdjacentTets<'a, M> = FlatMapWith<&'a M, vec::IntoIter<TriId>, TriTets<'a, M>, fn(&'a M, TriId) -> TriTets<'a, M>>;
 
 /// Tetrahedron attributes
 pub trait Tet {
@@ -453,6 +486,12 @@ pub trait HasTets: HasTris<HigherF = B1> {
             tri.0[2],
             self.tri_vertex_opp(tri)?,
         ]))
+    }
+
+    /// Gets the tetrahedrons that are adjacent to this tetrahedron.
+    fn adjacent_tets(&self, tet: TetId) -> AdjacentTets<Self> {
+        let tris = tet.tris().to_vec();
+        tris.into_iter().flat_map_with(self, |mesh, tri| mesh.tri_tets(tri.twin()))
     }
 
     /// Adds a tetrahedron to the mesh. Vertex order is important!

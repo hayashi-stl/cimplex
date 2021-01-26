@@ -89,6 +89,17 @@ impl TriId {
         ]
     }
 
+    /// Gets the opposite edge of a vertex.
+    pub fn opp_edge(self, vertex: VertexId) -> EdgeId {
+        let index = self.index(vertex);
+        EdgeId([self.0[(index + 1) % 3], self.0[(index + 2) % 3]])
+    }
+
+    /// Gets the opposite vertex of an edge.
+    pub fn opp_vertex(self, edge: EdgeId) -> VertexId {
+        self.0[self.opp_index(edge)]
+    }
+
     /// Gets the index of a vertex, assuming it's part of the triangle
     fn index(self, vertex: VertexId) -> usize {
         self.0.iter().position(|v| *v == vertex).unwrap()
@@ -101,7 +112,7 @@ impl TriId {
 
     /// Reverses the tri so it winds the other way
     #[allow(dead_code)]
-    fn twin(self) -> Self {
+    pub(crate) fn twin(self) -> Self {
         Self([self.0[0], self.0[2], self.0[1]])
     }
 
@@ -134,10 +145,10 @@ pub type TrisMut<'a, FT> = Map<
 
 /// Iterator over the triangles connected to an edge with the correct winding.
 pub type EdgeTris<'a, M> =
-    MapWith<EdgeId, TriId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
+    MapWith<EdgeId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
 /// Iterator over the triangles connected to a vertex.
 pub type VertexTris<'a, M> =
-    MapWith<VertexId, TriId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
+    MapWith<VertexId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
 
 /// Triangle attributes
 pub trait Tri {
