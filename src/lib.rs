@@ -4,9 +4,9 @@ pub mod mesh1;
 pub mod mesh2;
 pub mod mesh3;
 pub mod tet;
+pub mod tetrahedralize;
 pub mod tri;
 pub mod vertex;
-pub mod tetrahedralize;
 
 mod iter;
 mod private;

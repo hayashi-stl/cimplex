@@ -3,10 +3,8 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use typenum::{U2, U3, B0, B1};
+use typenum::{B0, B1, U2, U3};
 
-use crate::{ComboMesh0, ComboMesh1, mesh1::MwbComboMesh1, mesh2::{ComboMesh2, MwbComboMesh2}};
-use crate::{mesh1::internal::HigherVertex, private::Lock};
 use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
@@ -15,6 +13,12 @@ use crate::PtN;
 use crate::{
     edge::{EdgeId, HasEdges},
     vertex::IdType,
+};
+use crate::{mesh1::internal::HigherVertex, private::Lock};
+use crate::{
+    mesh1::MwbComboMesh1,
+    mesh2::{ComboMesh2, MwbComboMesh2},
+    ComboMesh0, ComboMesh1,
 };
 
 use internal::{HigherTri, MwbTet, Tet};
@@ -65,7 +69,7 @@ impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
 
 impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
     crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
-    
+
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
     type WithoutMwbE = ComboMesh1<V, E>;
@@ -82,7 +86,7 @@ impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
 
 impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
     crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
-    
+
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
     type WithoutMwbF = ComboMesh2<V, E, F>;
@@ -102,7 +106,7 @@ impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
     type WithoutTets = ComboMesh2<V, E, F>;
     type WithMwbT = MwbComboMesh3<V, E, F, T>;
     type WithoutMwbT = ComboMesh3<V, E, F, T>;
-    
+
     fn remove_tet_higher<L: Lock>(&mut self, _: TetId) {}
 
     fn clear_tets_higher<L: Lock>(&mut self) {}
@@ -173,7 +177,7 @@ impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
 
 impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
-    
+
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
     type WithoutMwbE = ComboMesh1<V, E>;
@@ -182,7 +186,10 @@ impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
         // Preserve purity, and don't remove `edge` prematurely
         let mut opps = self.edge_vertex_opps(edge).collect::<Vec<_>>();
         if let Some(opp) = opps.first().copied() {
-            self.remove_tris(opps.drain(1..).map(|v| TriId::from_valid([edge.0[0], edge.0[1], v])));
+            self.remove_tris(
+                opps.drain(1..)
+                    .map(|v| TriId::from_valid([edge.0[0], edge.0[1], v])),
+            );
             self.remove_tri_keep_edges(TriId::from_valid([edge.0[0], edge.0[1], opp]));
 
             // Edges don't have the mwb property here, so check if there are triangles around them
@@ -203,7 +210,7 @@ impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
 
 impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
-    
+
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
     type WithoutMwbF = ComboMesh2<V, E, F>;
@@ -225,7 +232,7 @@ impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
 
 impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_tets!(MwbTet<T>, Mwb = B1);
-    
+
     type WithoutTets = ComboMesh2<V, E, F>;
     type WithMwbT = MwbComboMesh3<V, E, F, T>;
     type WithoutMwbT = ComboMesh3<V, E, F, T>;
@@ -302,12 +309,7 @@ mod internal {
     pub struct MwbTet<T> {
         value: T,
     }
-    crate::impl_tet_mwb!(
-        MwbTet<T>,
-        new | _id,
-        _links,
-        value | MwbTet { value }
-    );
+    crate::impl_tet_mwb!(MwbTet<T>, new | _id, _links, value | MwbTet { value });
 }
 
 #[cfg(test)]
@@ -629,19 +631,20 @@ mod tests {
         assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
         assert_eq!(mesh.num_tris(), 17);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_vertex(ids[3]), Some(2)); // Multiple tets should be removed
         assert_eq!(mesh.num_edges(), 20);
         assert_eq!(mesh.num_tris(), 7);
-        assert_tets(&mesh, vec![
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(&mesh, vec![([ids[6], ids[7], ids[4], ids[5]], 6)]);
     }
 
     #[test]
@@ -660,20 +663,26 @@ mod tests {
         assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 35);
         assert_eq!(mesh.num_tris(), 19);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_edge([ids[2], ids[3]]), Some(0)); // Multiple tets should be removed
         assert_eq!(mesh.num_edges(), 34);
         assert_eq!(mesh.num_tris(), 16);
-        assert_tets(&mesh, vec![
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
     }
 
     #[test]
@@ -692,12 +701,15 @@ mod tests {
         assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 34);
         assert_eq!(mesh.num_tris(), 19);
-        assert_tets(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
     }
 
     #[test]
@@ -1454,19 +1466,20 @@ mod tests {
         assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
         assert_eq!(mesh.num_tris(), 16);
-        assert_tets_m(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_vertex(ids[3]), Some(2)); // Multiple tets should be removed
         assert_eq!(mesh.num_edges(), 12);
         assert_eq!(mesh.num_tris(), 4);
-        assert_tets_m(&mesh, vec![
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets_m(&mesh, vec![([ids[6], ids[7], ids[4], ids[5]], 6)]);
     }
 
     #[test]
@@ -1485,20 +1498,26 @@ mod tests {
         assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
         assert_eq!(mesh.num_tris(), 16);
-        assert_tets_m(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
 
         assert_eq!(mesh.remove_edge([ids[2], ids[3]]), Some(0)); // Multiple tets should be removed
         assert_eq!(mesh.num_edges(), 18);
         assert_eq!(mesh.num_tris(), 8);
-        assert_tets_m(&mesh, vec![
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
     }
 
     #[test]
@@ -1517,12 +1536,15 @@ mod tests {
         assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
         assert_eq!(mesh.num_tris(), 16);
-        assert_tets_m(&mesh, vec![
-            ([ids[0], ids[2], ids[3], ids[4]], 3),
-            ([ids[2], ids[3], ids[4], ids[5]], 4),
-            ([ids[6], ids[5], ids[4], ids[3]], 5),
-            ([ids[6], ids[7], ids[4], ids[5]], 6),
-        ]);
+        assert_tets_m(
+            &mesh,
+            vec![
+                ([ids[0], ids[2], ids[3], ids[4]], 3),
+                ([ids[2], ids[3], ids[4], ids[5]], 4),
+                ([ids[6], ids[5], ids[4], ids[3]], 5),
+                ([ids[6], ids[7], ids[4], ids[5]], 6),
+            ],
+        );
     }
 
     #[test]

@@ -2,11 +2,11 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
-use typenum::{U2, U3, B0};
+use typenum::{B0, U2, U3};
 
-use crate::vertex::{HasVertices, IdType, VertexId, Vertex as VertexIntr};
+use crate::private::{Key, Lock};
+use crate::vertex::{HasVertices, IdType, Vertex as VertexIntr, VertexId};
 use crate::PtN;
-use crate::private::{Lock, Key};
 
 use internal::Vertex;
 
@@ -55,7 +55,9 @@ impl<V> IntoIterator for ComboMesh0<V> {
 
     /// Converts this into an iterator of vertex values.
     fn into_iter(self) -> Self::IntoIter {
-        self.vertices.into_iter().map(|(id, v)| (id, v.to_value::<Key>()))
+        self.vertices
+            .into_iter()
+            .map(|(id, v)| (id, v.to_value::<Key>()))
     }
 }
 
@@ -75,8 +77,10 @@ impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
 
 impl<V> Extend<(VertexId, V)> for ComboMesh0<V> {
     fn extend<T: IntoIterator<Item = (VertexId, V)>>(&mut self, iter: T) {
-        self.vertices
-            .extend(iter.into_iter().map(|(id, v)| (id, VertexIntr::new::<Key>(id, v))))
+        self.vertices.extend(
+            iter.into_iter()
+                .map(|(id, v)| (id, VertexIntr::new::<Key>(id, v))),
+        )
     }
 }
 
@@ -106,8 +110,8 @@ mod internal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Point2;
     use crate::vertex::HasPosition;
+    use nalgebra::Point2;
 
     #[test]
     fn test_bounding_box() {
@@ -115,9 +119,12 @@ mod tests {
         mesh.extend_vertices(vec![
             Point2::new(0.0, 1.0),
             Point2::new(-1.0, 2.0),
-            Point2::new(5.0, 3.0)
+            Point2::new(5.0, 3.0),
         ]);
 
-        assert_eq!(mesh.bounding_box(), Some([Point2::new(-1.0, 1.0), Point2::new(5.0, 3.0)]));
+        assert_eq!(
+            mesh.bounding_box(),
+            Some([Point2::new(-1.0, 1.0), Point2::new(5.0, 3.0)])
+        );
     }
 }

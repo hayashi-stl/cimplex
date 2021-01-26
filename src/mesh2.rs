@@ -3,14 +3,18 @@ use idmap::OrderedIdMap;
 #[cfg(feature = "serialize")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use typenum::{U2, U3, B0, B1};
+use typenum::{B0, B1, U2, U3};
 
-use crate::{ComboMesh0, ComboMesh1, edge::{EdgeId, HasEdges}, mesh1::MwbComboMesh1};
 use crate::mesh1::internal::HigherVertex;
+use crate::private::Lock;
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, IdType, VertexId};
 use crate::PtN;
-use crate::private::Lock;
+use crate::{
+    edge::{EdgeId, HasEdges},
+    mesh1::MwbComboMesh1,
+    ComboMesh0, ComboMesh1,
+};
 
 use internal::{HigherEdge, MwbTri, Tri};
 
@@ -54,7 +58,7 @@ impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {
 
 impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {
     crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
-    
+
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
     type WithoutMwbE = ComboMesh1<V, E>;
@@ -70,7 +74,7 @@ impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {
 
 impl<V, E, F> HasTris for ComboMesh2<V, E, F> {
     crate::impl_has_tris!(Tri<F>, Mwb = B0, Higher = B0);
-    
+
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
     type WithoutMwbF = ComboMesh2<V, E, F>;
@@ -141,7 +145,7 @@ impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {
 
 impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {
     crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
-    
+
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
     type WithoutMwbE = ComboMesh1<V, E>;
@@ -162,7 +166,7 @@ impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {
 
 impl<V, E, F> HasTris for MwbComboMesh2<V, E, F> {
     crate::impl_has_tris!(MwbTri<F>, Mwb = B1, Higher = B0);
-    
+
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
     type WithoutMwbF = ComboMesh2<V, E, F>;
