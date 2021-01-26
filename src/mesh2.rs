@@ -3,7 +3,7 @@ use idmap::OrderedIdMap;
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
-use crate::mesh1::internal::HigherVertex;
+use crate::{ComboMesh3, mesh1::internal::HigherVertex};
 use crate::private::Lock;
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, IdType, VertexId};
@@ -38,6 +38,7 @@ pub struct ComboMesh2<V, E, F> {
 crate::impl_index_vertex!(ComboMesh2<V, E, F>);
 crate::impl_index_edge!(ComboMesh2<V, E, F>);
 crate::impl_index_tri!(ComboMesh2<V, E, F>);
+crate::impl_with_eft!(ComboMesh2<V, E, F>: <V, E, F> ComboMesh1<V, E>, <V, E, F> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed, Higher = B1);
@@ -100,7 +101,12 @@ impl<V: Default, E: Default, F: Default> Default for ComboMesh2<V, E, F> {
 
 impl<V, E, F> ComboMesh2<V, E, F> {
     /// Creates an empty tri mesh.
-    pub fn new() -> Self where V: Default, E: Default, F: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+        F: Default,
+    {
         Self::default()
     }
 
@@ -143,6 +149,7 @@ pub struct MwbComboMesh2<V, E, F> {
 crate::impl_index_vertex!(MwbComboMesh2<V, E, F>);
 crate::impl_index_edge!(MwbComboMesh2<V, E, F>);
 crate::impl_index_tri!(MwbComboMesh2<V, E, F>);
+crate::impl_with_eft!(MwbComboMesh2<V, E, F>: <V, E, F> ComboMesh1<V, E>, <V, E, F> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed, Higher = B1);
@@ -210,7 +217,12 @@ impl<V: Default, E: Default, F: Default> Default for MwbComboMesh2<V, E, F> {
 
 impl<V, E, F> MwbComboMesh2<V, E, F> {
     /// Creates an empty tri mesh.
-    pub fn new() -> Self where V: Default, E: Default, F: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+        F: Default,
+    {
         Self::default()
     }
 

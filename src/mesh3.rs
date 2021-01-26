@@ -3,7 +3,7 @@ use idmap::OrderedIdMap;
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
-use crate::{mesh2::internal::HigherEdge};
+use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
@@ -49,6 +49,7 @@ crate::impl_index_vertex!(ComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
+crate::impl_with_eft!(ComboMesh3<V, E, F, T>: <V, E, F, T> ComboMesh1<V, E>, <V, E, F, T> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed zeroed, Higher = B1);
@@ -131,12 +132,23 @@ impl<V: Default, E: Default, F: Default, T: Default> Default for ComboMesh3<V, E
 
 impl<V, E, F, T> ComboMesh3<V, E, F, T> {
     /// Creates an empty tet mesh.
-    pub fn new() -> Self where V: Default, E: Default, F: Default, T: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+        F: Default,
+        T: Default,
+    {
         Self::default()
     }
 
     /// Creates an empty tet mesh with default values for elements.
-    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F, tet: fn() -> T) -> Self {
+    pub fn with_defaults(
+        vertex: fn() -> V,
+        edge: fn() -> E,
+        tri: fn() -> F,
+        tet: fn() -> T,
+    ) -> Self {
         Self {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
@@ -179,6 +191,7 @@ crate::impl_index_vertex!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
+crate::impl_with_eft!(MwbComboMesh3<V, E, F, T>: <V, E, F, T> ComboMesh1<V, E>, <V, E, F, T> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed zeroed, Higher = B1);
@@ -283,12 +296,23 @@ impl<V: Default, E: Default, F: Default, T: Default> Default for MwbComboMesh3<V
 
 impl<V, E, F, T> MwbComboMesh3<V, E, F, T> {
     /// Creates an empty tet mesh.
-    pub fn new() -> Self where V: Default, E:Default, F: Default, T: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+        F: Default,
+        T: Default,
+    {
         Self::default()
     }
 
     /// Creates an empty tet mesh with default values for elements.
-    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F, tet: fn() -> T) -> Self {
+    pub fn with_defaults(
+        vertex: fn() -> V,
+        edge: fn() -> E,
+        tri: fn() -> F,
+        tet: fn() -> T,
+    ) -> Self {
         Self {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
@@ -563,10 +587,7 @@ mod tests {
     fn test_add_tet() {
         let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1), None);
         assert_tris(
             &mesh,
             vec![
@@ -582,10 +603,7 @@ mod tests {
         mesh.add_tri([ids[1], ids[2], ids[0]], 1);
 
         // Add twin
-        assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2), None);
         assert_tris(
             &mesh,
             vec![
@@ -608,10 +626,7 @@ mod tests {
         );
 
         // Modify tet
-        assert_eq!(
-            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3),
-            Some(2)
-        );
+        assert_eq!(mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3), Some(2));
         assert_tris(
             &mesh,
             vec![
@@ -838,14 +853,8 @@ mod tests {
         mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
-        assert_eq!(
-            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7),
-            None
-        );
-        assert_eq!(
-            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7), None);
+        assert_eq!(mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8), None);
         assert_eq!(mesh.num_tris(), 27);
         assert_tets(
             &mesh,
@@ -1392,10 +1401,7 @@ mod tests {
     fn test_add_tet_m() {
         let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1), None);
         assert_tris_m(
             &mesh,
             vec![
@@ -1408,10 +1414,7 @@ mod tests {
         assert_tets_m(&mesh, vec![([ids[0], ids[1], ids[3], ids[2]], 1)]);
 
         // Add twin
-        assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2), None);
         assert_tris_m(
             &mesh,
             vec![
@@ -1434,10 +1437,7 @@ mod tests {
         );
 
         // Modify tet
-        assert_eq!(
-            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3),
-            Some(2)
-        );
+        assert_eq!(mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3), Some(2));
         assert_tris_m(
             &mesh,
             vec![
@@ -1636,14 +1636,8 @@ mod tests {
         mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
-        assert_eq!(
-            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7),
-            None
-        );
-        assert_eq!(
-            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8),
-            None
-        );
+        assert_eq!(mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7), None);
+        assert_eq!(mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8), None);
         assert_eq!(mesh.num_tris(), 20);
         assert_tets_m(
             &mesh,

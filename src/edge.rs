@@ -68,7 +68,12 @@ impl EdgeId {
     fn index(self, vertex: VertexId) -> usize {
         self.0.iter().position(|v| *v == vertex).unwrap()
     }
-
+    
+    pub(crate) fn invalid() -> Self {
+        // Same ID
+        Self([VertexId(0); 2])
+    }
+    
     pub(crate) fn dummy() -> Self {
         Self([VertexId::dummy(); 2])
     }
@@ -201,7 +206,9 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
         edges: EI,
         default_v: fn() -> Self::V,
         default_e: fn() -> Self::E,
-    ) -> Self where Self: HasEdges<HigherE = B0>;
+    ) -> Self
+    where
+        Self: HasEdges<HigherE = B0>;
 
     #[doc(hidden)]
     fn into_ve_r<L: Lock>(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>);
@@ -252,6 +259,21 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
             .map(|(id, e)| (id, e.value_mut::<Key>()))
     }
 
+    /// Gets whether the mesh contains some edge.
+    fn contains_edge<EI: TryInto<EdgeId>>(&self, id: EI) -> bool {
+        id.try_into()
+            .ok()
+            .and_then(|id| self.edges_r::<Key>().get(&id))
+            .is_some()
+    }
+
+    /// Takes a edge id and returns it back if the edge exists,
+    /// or None if it doesn't.
+    /// Useful for composing with functions that assume the edge exists.
+    fn edge_id<EI: TryInto<EdgeId>>(&self, id: EI) -> Option<EdgeId> {
+        id.try_into().ok().and_then(|id| if self.contains_edge(id) { Some(id) } else { None })
+    }
+
     /// Gets the value of the edge at a specific id.
     /// Returns None if not found.
     fn edge<EI: TryInto<EdgeId>>(&self, id: EI) -> Option<&Self::E> {
@@ -271,7 +293,6 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Iterates over the targets of the outgoing edges of a vertex.
-    /// The vertex must exist.
     fn vertex_targets(&self, vertex: VertexId) -> VertexTargets<Self> {
         if let Some(walker) = self.edge_walker_from_vertex(vertex) {
             let start_target = walker.second();
@@ -290,12 +311,11 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Gets the target of the ≤1 outgoing edge that the vertex is a source of.
-    /// The vertex must exist.
     fn vertex_target(&self, vertex: VertexId) -> Option<VertexId>
     where
         Self: HasEdges<MwbE = B1>,
     {
-        let target = self.vertices_r::<Key>()[vertex].target::<Key>();
+        let target = self.vertices_r::<Key>().get(vertex)?.target::<Key>();
         if target != vertex {
             Some(target)
         } else {
@@ -304,14 +324,12 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Iterates over the outgoing edges of a vertex.
-    /// The vertex must exist.
     fn vertex_edges_out(&self, vertex: VertexId) -> VertexEdgesOut<Self> {
         self.vertex_targets(vertex)
             .map_with(vertex, |s, t| EdgeId([s, t]))
     }
 
     /// Gets the ≤1 outgoing edge that the vertex is a source of.
-    /// The vertex must exist.
     fn vertex_edge_out(&self, vertex: VertexId) -> Option<EdgeId>
     where
         Self: HasEdges<MwbE = B1>,
@@ -320,7 +338,6 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Iterates over the sources of the incoming edges of a vertex.
-    /// The vertex must exist.
     fn vertex_sources(&self, vertex: VertexId) -> VertexSources<Self> {
         if let Some(walker) = EdgeWalker::from_target(self, vertex) {
             let start_source = walker.first();
@@ -339,12 +356,11 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Gets the source of the ≤1 incoming edge that the vertex is a target of.
-    /// The vertex must exist.
     fn vertex_source(&self, vertex: VertexId) -> Option<VertexId>
     where
         Self: HasEdges<MwbE = B1>,
     {
-        let source = self.vertices_r::<Key>()[vertex].source::<Key>();
+        let source = self.vertices_r::<Key>().get(vertex)?.source::<Key>();
         if source != vertex {
             Some(source)
         } else {
@@ -353,14 +369,12 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Iterates over the incoming edges of a vertex.
-    /// The vertex must exist.
     fn vertex_edges_in(&self, vertex: VertexId) -> VertexEdgesIn<Self> {
         self.vertex_sources(vertex)
             .map_with(vertex, |t, s| EdgeId([s, t]))
     }
 
     /// Gets the ≤1 incoming edge that the vertex is a source of.
-    /// The vertex must exist.
     fn vertex_edge_in(&self, vertex: VertexId) -> Option<EdgeId>
     where
         Self: HasEdges<MwbE = B1>,
@@ -640,14 +654,14 @@ where
     }
 
     fn from_vertex(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        match EdgeId::try_from([vertex, mesh.vertices_r::<Key>()[vertex].target::<Key>()]) {
+        match EdgeId::try_from([vertex, mesh.vertices_r::<Key>().get(vertex)?.target::<Key>()]) {
             Ok(edge) => Some(Self::new(mesh, edge)),
             Err(_) => None,
         }
     }
 
     fn from_target(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        match EdgeId::try_from([mesh.vertices_r::<Key>()[vertex].source::<Key>(), vertex]) {
+        match EdgeId::try_from([mesh.vertices_r::<Key>().get(vertex)?.source::<Key>(), vertex]) {
             Ok(edge) => Some(Self::new(mesh, edge)),
             Err(_) => None,
         }

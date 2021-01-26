@@ -55,6 +55,10 @@ impl TriId {
         v
     }
 
+    pub(crate) fn invalid() -> Self {
+        Self([VertexId(0); 3])
+    }
+
     /// Conversion without checking for inequality of the vertices
     pub(crate) fn from_valid(v: [VertexId; 3]) -> Self {
         Self(Self::canonicalize(v))
@@ -144,8 +148,7 @@ pub type TrisMut<'a, FT> = Map<
 >;
 
 /// Iterator over the triangles connected to an edge with the correct winding.
-pub type EdgeTris<'a, M> =
-    MapWith<EdgeId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
+pub type EdgeTris<'a, M> = MapWith<EdgeId, EdgeVertexOpps<'a, M>, fn(EdgeId, VertexId) -> TriId>;
 /// Iterator over the triangles connected to a vertex.
 pub type VertexTris<'a, M> =
     MapWith<VertexId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
@@ -232,7 +235,9 @@ pub trait HasTris: HasEdges<HigherE = B1> {
         default_v: fn() -> Self::V,
         default_e: fn() -> Self::E,
         default_f: fn() -> Self::F,
-    ) -> Self where Self: HasTris<HigherF = B0>;
+    ) -> Self
+    where
+        Self: HasTris<HigherF = B0>;
 
     #[doc(hidden)]
     fn into_vef_r<L: Lock>(
@@ -289,6 +294,21 @@ pub trait HasTris: HasEdges<HigherE = B1> {
             .map(|(id, f)| (id, f.value_mut::<Key>()))
     }
 
+    /// Gets whether the mesh contains some triangle.
+    fn contains_tri<FI: TryInto<TriId>>(&self, id: FI) -> bool {
+        id.try_into()
+            .ok()
+            .and_then(|id| self.tris_r::<Key>().get(&id))
+            .is_some()
+    }
+
+    /// Takes a tri id and returns it back if the triangle exists,
+    /// or None if it doesn't.
+    /// Useful for composing with functions that assume the triangle exists.
+    fn tri_id<FI: TryInto<TriId>>(&self, id: FI) -> Option<TriId> {
+        id.try_into().ok().and_then(|id| if self.contains_tri(id) { Some(id) } else { None })
+    }
+
     /// Gets the value of the triangle at a specific id.
     /// Returns None if not found.
     fn tri<FI: TryInto<TriId>>(&self, id: FI) -> Option<&Self::F> {
@@ -308,7 +328,6 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Iterates over the opposite edges of the triangles that a vertex is part of.
-    /// The vertex must exist.
     fn vertex_edge_opps(&self, vertex: VertexId) -> VertexEdgeOpps<Self> {
         VertexEdgeOpps {
             mesh: self,
@@ -318,7 +337,6 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Iterates over the triangles that a vertex is part of.
-    /// The vertex must exist.
     fn vertex_tris(&self, vertex: VertexId) -> VertexTris<Self> {
         self.vertex_edge_opps(vertex)
             .map_with(vertex, |vertex, opp| {
@@ -327,7 +345,6 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Iterates over the opposite vertices of the triangles that an edge is part of.
-    /// The edge must exist.
     fn edge_vertex_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeVertexOpps<Self> {
         if let Some(walker) = self.tri_walker_from_edge(edge) {
             let start_opp = walker.third();
@@ -346,12 +363,12 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Gets the opposite vertex of the ≤1 outgoing triangle that the edge is part of.
-    /// The edge must exist.
-    fn edge_vertex_opp(&self, edge: EdgeId) -> Option<VertexId>
+    fn edge_vertex_opp<EI: TryInto<EdgeId>>(&self, edge: EI) -> Option<VertexId>
     where
         Self: HasTris<MwbF = typenum::B1>,
     {
-        let opp = self.edges_r::<Key>()[&edge].tri_opp::<Key>();
+        let edge = edge.try_into().ok()?;
+        let opp = self.edges_r::<Key>().get(&edge)?.tri_opp::<Key>();
         if opp != edge.0[0] {
             Some(opp)
         } else {
@@ -360,20 +377,19 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Iterates over the triangles that an edge is part of.
-    /// The edge must exist.
     fn edge_tris<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTris<Self> {
-        let edge = edge.try_into().ok().unwrap();
+        let edge = edge.try_into().unwrap_or(EdgeId::invalid());
         self.edge_vertex_opps(edge).map_with(edge, |edge, opp| {
             TriId::from_valid([edge.0[0], edge.0[1], opp])
         })
     }
 
     /// Gets the ≤1 triangle that the edge is part of.
-    /// The edge must exist.
-    fn edge_tri(&self, edge: EdgeId) -> Option<TriId>
+    fn edge_tri<EI: TryInto<EdgeId>>(&self, edge: EI) -> Option<TriId>
     where
         Self: HasTris<MwbF = typenum::B1>,
     {
+        let edge = edge.try_into().ok()?;
         Some(TriId::from_valid([
             edge.0[0],
             edge.0[1],
@@ -391,11 +407,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     ///
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same.
-    fn add_tri<FI: TryInto<TriId>>(
-        &mut self,
-        vertices: FI,
-        value: Self::F,
-    ) -> Option<Self::F> {
+    fn add_tri<FI: TryInto<TriId>>(&mut self, vertices: FI, value: Self::F) -> Option<Self::F> {
         let id = vertices.try_into().ok().unwrap();
 
         for edge in &id.edges() {
@@ -465,10 +477,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same
     /// in any of the triangles.
-    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, Self::F)>>(
-        &mut self,
-        iter: I,
-    ) {
+    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, Self::F)>>(&mut self, iter: I) {
         iter.into_iter().for_each(|(id, value)| {
             self.add_tri(id, value);
         })
@@ -653,8 +662,8 @@ where
     }
 
     pub(crate) fn from_edge<EI: TryInto<EdgeId>>(mesh: &'a M, edge: EI) -> Option<Self> {
-        let edge = edge.try_into().ok().unwrap();
-        let opp = mesh.edges_r::<Key>()[&edge].tri_opp::<Key>();
+        let edge = edge.try_into().ok()?;
+        let opp = mesh.edges_r::<Key>().get(&edge)?.tri_opp::<Key>();
         let _: TriId = [
             edge.0[0],
             edge.0[1],

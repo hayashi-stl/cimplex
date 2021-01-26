@@ -10,7 +10,7 @@ use std::iter::Map;
 use std::vec;
 use typenum::{Bit, B0, B1};
 
-use crate::iter::{IteratorExt, MapWith, FlatMapWith};
+use crate::iter::{FlatMapWith, IteratorExt, MapWith};
 use crate::private::{Key, Lock};
 use crate::tri::{EdgeVertexOpps, Tri};
 use crate::tri::{HasTris, TriId, TriWalker};
@@ -69,6 +69,10 @@ impl TetId {
             .0;
         v[1..].rotate_left(min_pos);
         v
+    }
+
+    pub(crate) fn invalid() -> Self {
+        Self([VertexId(0); 4])
     }
 
     /// Skips the vertex inequality check but does canonicalization
@@ -161,7 +165,7 @@ impl TetId {
             1 => TriId::from_valid([v[2], v[3], v[0]]),
             2 => TriId::from_valid([v[1], v[0], v[3]]),
             3 => TriId::from_valid([v[0], v[1], v[2]]),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -185,7 +189,7 @@ impl TetId {
             (1, 0) => EdgeId([v[3], v[2]]),
             (0, 3) => EdgeId([v[1], v[2]]),
             (3, 1) => EdgeId([v[0], v[2]]),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -242,11 +246,11 @@ pub type TriTets<'a, M> = MapWith<TriId, TriVertexOpps<'a, M>, fn(TriId, VertexI
 /// Iterator over the tetrahedrons connected to an edge.
 pub type EdgeTets<'a, M> = MapWith<EdgeId, EdgeEdgeOpps<'a, M>, fn(EdgeId, EdgeId) -> TetId>;
 /// Iterator over the tetrahedrons connected to a vertex.
-pub type VertexTets<'a, M> =
-    MapWith<VertexId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
+pub type VertexTets<'a, M> = MapWith<VertexId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
 
 /// Iterator over the adjacent tetrahedrons of a tetrahedron.
-pub type AdjacentTets<'a, M> = FlatMapWith<&'a M, vec::IntoIter<TriId>, TriTets<'a, M>, fn(&'a M, TriId) -> TriTets<'a, M>>;
+pub type AdjacentTets<'a, M> =
+    FlatMapWith<&'a M, vec::IntoIter<TriId>, TriTets<'a, M>, fn(&'a M, TriId) -> TriTets<'a, M>>;
 
 /// Tetrahedron attributes
 pub trait Tet {
@@ -376,6 +380,21 @@ pub trait HasTets: HasTris<HigherF = B1> {
             .map(|(id, t)| (id, t.value_mut::<Key>()))
     }
 
+    /// Gets whether the mesh contains some tetrahedron.
+    fn contains_tet<TI: TryInto<TetId>>(&self, id: TI) -> bool {
+        id.try_into()
+            .ok()
+            .and_then(|id| self.tets_r::<Key>().get(&id))
+            .is_some()
+    }
+
+    /// Takes a tet id and returns it back if the tetrahedron exists,
+    /// or None if it doesn't.
+    /// Useful for composing with functions that assume the tetrahedron exists.
+    fn tet_id<TI: TryInto<TetId>>(&self, id: TI) -> Option<TetId> {
+        id.try_into().ok().and_then(|id| if self.contains_tet(id) { Some(id) } else { None })
+    }
+
     /// Gets the value of the tetrahedron at a specific id.
     /// Returns None if not found.
     fn tet<TI: TryInto<TetId>>(&self, id: TI) -> Option<&Self::T> {
@@ -395,7 +414,6 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Iterates over the opposite triangles of the tetrahedrons that a vertex is part of.
-    /// The vertex must exist.
     fn vertex_tri_opps(&self, vertex: VertexId) -> VertexTriOpps<Self> {
         VertexTriOpps {
             mesh: self,
@@ -405,7 +423,6 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Iterates over the tetrahedrons that a vertex is part of.
-    /// The vertex must exist.
     fn vertex_tets(&self, vertex: VertexId) -> VertexTets<Self> {
         self.vertex_tri_opps(vertex)
             .map_with(vertex, |vertex, opp| {
@@ -414,7 +431,6 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Iterates over the opposite edges of the tetrahedrons that an edge is part of.
-    /// The edge must exist.
     fn edge_edge_opps<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeEdgeOpps<Self> {
         EdgeEdgeOpps {
             mesh: self,
@@ -424,16 +440,16 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Iterates over the tetrahedrons that an edge is part of.
-    /// The edge must exist.
     fn edge_tets<EI: TryInto<EdgeId>>(&self, edge: EI) -> EdgeTets<Self> {
-        let edge = edge.try_into().ok().unwrap();
+        let edge = edge.try_into().unwrap_or(EdgeId::invalid());
+
+        // edge_vertex_opps is an empty iterator if the edge does not exist.
         self.edge_edge_opps(edge).map_with(edge, |edge, opp| {
             TetId::from_valid([edge.0[0], edge.0[1], opp.0[0], opp.0[1]])
         })
     }
 
     /// Iterates over the opposite vertices of the tetrahedrons that a triangle is part of.
-    /// The triangle must exist.
     fn tri_vertex_opps<TI: TryInto<TriId>>(&self, tri: TI) -> TriVertexOpps<Self> {
         if let Some(walker) = self.tet_walker_from_tri(tri) {
             let start_opp = walker.fourth();
@@ -452,12 +468,12 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Gets the opposite vertex of the ≤1 outgoing tetrahedron that the triangle is part of.
-    /// The triangle must exist.
-    fn tri_vertex_opp(&self, tri: TriId) -> Option<VertexId>
+    fn tri_vertex_opp<FI: TryInto<TriId>>(&self, tri: FI) -> Option<VertexId>
     where
         Self: HasTets<MwbT = typenum::B1>,
     {
-        let opp = self.tris_r::<Key>()[&tri].tet_opp::<Key>();
+        let tri = tri.try_into().ok()?;
+        let opp = self.tris_r::<Key>().get(&tri)?.tet_opp::<Key>();
         if opp != tri.0[0] {
             Some(opp)
         } else {
@@ -466,20 +482,19 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Iterates over the tetrahedrons that an triangle is part of.
-    /// The triangle must exist.
     fn tri_tets<FI: TryInto<TriId>>(&self, tri: FI) -> TriTets<Self> {
-        let tri = tri.try_into().ok().unwrap();
+        let tri = tri.try_into().unwrap_or(TriId::invalid());
         self.tri_vertex_opps(tri).map_with(tri, |tri, opp| {
             TetId::from_valid([tri.0[0], tri.0[1], tri.0[2], opp])
         })
     }
 
     /// Gets the ≤1 tetrahedron that the triangle is part of.
-    /// The triangle must exist.
-    fn tri_tet(&self, tri: TriId) -> Option<TetId>
+    fn tri_tet<FI: TryInto<TriId>>(&self, tri: FI) -> Option<TetId>
     where
         Self: HasTets<MwbT = typenum::B1>,
     {
+        let tri = tri.try_into().ok()?;
         Some(TetId::from_valid([
             tri.0[0],
             tri.0[1],
@@ -489,9 +504,11 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Gets the tetrahedrons that are adjacent to this tetrahedron.
+    /// Beware that for now, the twin tetrahedron is returned 4 times if it exists.
     fn adjacent_tets(&self, tet: TetId) -> AdjacentTets<Self> {
         let tris = tet.tris().to_vec();
-        tris.into_iter().flat_map_with(self, |mesh, tri| mesh.tri_tets(tri.twin()))
+        tris.into_iter()
+            .flat_map_with(self, |mesh, tri| mesh.tri_tets(tri.twin()))
     }
 
     /// Adds a tetrahedron to the mesh. Vertex order is important!
@@ -504,11 +521,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     ///
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same.
-    fn add_tet<TI: TryInto<TetId>>(
-        &mut self,
-        vertices: TI,
-        value: Self::T,
-    ) -> Option<Self::T> {
+    fn add_tet<TI: TryInto<TetId>>(&mut self, vertices: TI, value: Self::T) -> Option<Self::T> {
         let id = vertices.try_into().ok().unwrap();
 
         for tri in &id.tris() {
@@ -581,10 +594,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same
     /// in any of the tetrahedrons.
-    fn extend_tets<TI: TryInto<TetId>, I: IntoIterator<Item = (TI, Self::T)>>(
-        &mut self,
-        iter: I,
-    ) {
+    fn extend_tets<TI: TryInto<TetId>, I: IntoIterator<Item = (TI, Self::T)>>(&mut self, iter: I) {
         iter.into_iter().for_each(|(id, value)| {
             self.add_tet(id, value);
         })
@@ -711,6 +721,8 @@ pub trait HasTets: HasTris<HigherF = B1> {
         edge: EI,
         vertex: VertexId,
     ) -> Option<TetWalker<Self>> {
+        let edge = self.edge_id(edge)?;
+        let _ = self.tri_id([edge.0[0], edge.0[1], vertex])?;
         TetWalker::from_edge_vertex(self, edge, vertex)
     }
 
@@ -719,8 +731,9 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// Be warned that this does not preserve the order of the vertices
     /// because the triangle id is canonicalized.
     fn tet_walker_from_tri<FI: TryInto<TriId>>(&self, tri: FI) -> Option<TetWalker<Self>> {
-        let tri = tri.try_into().ok().unwrap();
-        self.tet_walker_from_edge_vertex(tri.edges()[0], tri.0[2])
+        let tri = tri.try_into().ok()?;
+        // This method checks if the triangle exists already, so no need to do it above
+        TetWalker::from_edge_vertex(self, tri.edges()[0], tri.0[2])
     }
 
     /// Gets a tetrahedron walker that starts at the given edge with the given opposite edge.
@@ -790,9 +803,9 @@ where
         edge: EI,
         vertex: VertexId,
     ) -> Option<Self> {
-        let edge = edge.try_into().ok().unwrap();
+        let edge = edge.try_into().ok()?;
         let tri = [edge.0[0], edge.0[1], vertex].try_into().ok()?;
-        let opp = mesh.tris_r::<Key>()[&tri].tet_opp::<Key>();
+        let opp = mesh.tris_r::<Key>().get(&tri)?.tet_opp::<Key>();
         let _: TetId = [edge.0[0], edge.0[1], vertex, opp].try_into().ok()?;
         Some(Self::new(mesh, edge, EdgeId([vertex, opp])))
     }

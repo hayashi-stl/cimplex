@@ -2,7 +2,7 @@ use idmap::OrderedIdMap;
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
 use typenum::{B0, U2, U3};
 
-use crate::private::{Key, Lock};
+use crate::{ComboMesh1, ComboMesh2, ComboMesh3, private::{Key, Lock}};
 use crate::vertex::{HasVertices, IdType, Vertex as VertexIntr, VertexId};
 use crate::PtN;
 
@@ -19,6 +19,7 @@ pub struct ComboMesh0<V> {
 }
 
 crate::impl_index_vertex!(ComboMesh0<V>);
+crate::impl_with_eft!(ComboMesh0<V>: <V, E> ComboMesh1<V, E>, <V, E, F> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V> HasVertices for ComboMesh0<V> {
     crate::impl_has_vertices!(Vertex<V>, Higher = B0);
@@ -40,7 +41,10 @@ impl<V: Default> Default for ComboMesh0<V> {
 
 impl<V> ComboMesh0<V> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self where V: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+    {
         Self::default()
     }
 

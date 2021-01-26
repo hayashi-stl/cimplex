@@ -4,7 +4,7 @@ use idmap::OrderedIdMap;
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
-use crate::private::Lock;
+use crate::{ComboMesh2, ComboMesh3, private::Lock};
 use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
 use crate::{vertex::VertexId, ComboMesh0};
@@ -27,6 +27,7 @@ pub struct ComboMesh1<V, E> {
 }
 crate::impl_index_vertex!(ComboMesh1<V, E>);
 crate::impl_index_edge!(ComboMesh1<V, E>);
+crate::impl_with_eft!(ComboMesh1<V, E>: <V, E> ComboMesh1<V, E>, <V, E, F> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E> HasVertices for ComboMesh1<V, E> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed, Higher = B1);
@@ -70,7 +71,11 @@ impl<V: Default, E: Default> Default for ComboMesh1<V, E> {
 
 impl<V, E> ComboMesh1<V, E> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self where V: Default, E: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+    {
         Self::default()
     }
 
@@ -108,6 +113,7 @@ pub struct MwbComboMesh1<V, E> {
 }
 crate::impl_index_vertex!(MwbComboMesh1<V, E>);
 crate::impl_index_edge!(MwbComboMesh1<V, E>);
+crate::impl_with_eft!(MwbComboMesh1<V, E>: <V, E> ComboMesh1<V, E>, <V, E, F> ComboMesh2<V, E, F>, <V, E, F, T> ComboMesh3<V, E, F, T>);
 
 impl<V, E> HasVertices for MwbComboMesh1<V, E> {
     crate::impl_has_vertices!(HigherVertex<V> zeroed, Higher = B1);
@@ -150,7 +156,11 @@ impl<V: Default, E: Default> Default for MwbComboMesh1<V, E> {
 
 impl<V, E> MwbComboMesh1<V, E> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self where V: Default, E: Default {
+    pub fn new() -> Self
+    where
+        V: Default,
+        E: Default,
+    {
         Self::default()
     }
 

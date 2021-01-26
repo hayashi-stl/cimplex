@@ -8,12 +8,10 @@ use nalgebra::{DefaultAllocator, DimName, Point};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
-use typenum::{Bit, B1, B0};
+use typenum::{Bit, B0, B1};
 
 use crate::private::{Key, Lock};
-use crate::{
-    tet::{HasTets, WithTets},
-};
+use crate::tet::{HasTets, WithTets};
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
 pub(crate) type PositionPoint<P> = Point<f64, PositionDim<P>>;
@@ -165,8 +163,12 @@ pub trait HasVertices {
     type HigherV: Bit;
 
     #[doc(hidden)]
-    fn from_v_r<VI: IntoIterator<Item = (VertexId, Self::V)>, L: Lock>(vertices: VI, default_v: fn() -> Self::V) -> Self
-        where Self: HasVertices<HigherV = B0>;
+    fn from_v_r<VI: IntoIterator<Item = (VertexId, Self::V)>, L: Lock>(
+        vertices: VI,
+        default_v: fn() -> Self::V,
+    ) -> Self
+    where
+        Self: HasVertices<HigherV = B0>;
 
     #[doc(hidden)]
     fn into_v_r<L: Lock>(self) -> IntoVertices<Self::Vertex>;
@@ -221,6 +223,18 @@ pub trait HasVertices {
         self.vertices_r_mut::<Key>()
             .iter_mut()
             .map(|(id, v)| (id, v.value_mut::<Key>()))
+    }
+
+    /// Gets whether the mesh contains some vertex.
+    fn contains_vertex(&self, id: VertexId) -> bool {
+        self.vertices_r::<Key>().get(&id).is_some()
+    }
+
+    /// Takes a vertex id and returns it back if the vertex exists,
+    /// or None if it doesn't.
+    /// Useful for composing with functions that assume the vertex exists.
+    fn vertex_id(&self, id: VertexId) -> Option<VertexId> {
+        if self.contains_vertex(id) { Some(id) } else { None }
     }
 
     /// Gets the value of the vertex at a specific id.
@@ -327,10 +341,7 @@ where
     }
 
     /// Adds a vertex with some position and the default rest of the vertex value
-    fn add_with_position(
-        &mut self,
-        position: HasPositionPoint<Self>,
-    ) -> VertexId {
+    fn add_with_position(&mut self, position: HasPositionPoint<Self>) -> VertexId {
         self.add_vertex(self.default_vertex().with_position(position))
     }
 
@@ -598,6 +609,24 @@ macro_rules! impl_has_vertices {
 
         fn default_v_r<L: crate::private::Lock>(&self) -> fn() -> Self::V {
             self.default_v
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! impl_with_eft {
+    ($name:ty: <$($ep:ident),*> $e:ty, <$($fp:ident),*> $f:ty, <$($tp:ident),*> $t:ty) => {
+        impl<$($ep),*> crate::edge::WithEdges<V, E> for $name {
+            type WithEdges = $e;
+        }
+
+        impl<$($fp),*> crate::tri::WithTris<V, E, F> for $name {
+            type WithTris = $f;
+        }
+
+        impl<$($tp),*> crate::tet::WithTets<V, E, F, T> for $name {
+            type WithTets = $t;
         }
     };
 }
