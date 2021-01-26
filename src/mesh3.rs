@@ -1,11 +1,9 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
-use crate::mesh2::internal::HigherEdge;
+use crate::{mesh2::internal::HigherEdge};
 use crate::tet::{HasTets, TetId};
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, VertexId};
@@ -36,13 +34,16 @@ use internal::{HigherTri, MwbTet, Tet};
 /// The tetrahedron manipulation methods can either be called with an array of 4 `VertexId`s
 /// or an `TetId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh3<V, E, F, T> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, HigherTri<F>>,
     tets: FnvHashMap<TetId, Tet<T>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
+    default_f: fn() -> F,
+    default_t: fn() -> T,
 }
 crate::impl_index_vertex!(ComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(ComboMesh3<V, E, F, T>);
@@ -50,7 +51,7 @@ crate::impl_index_tri!(ComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(ComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed zeroed, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -68,7 +69,7 @@ impl<V, E, F, T> HasVertices for ComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
-    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
+    crate::impl_has_edges!(HigherEdge<E> zeroed zeroed, Mwb = B0, Higher = B1);
 
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
@@ -85,7 +86,7 @@ impl<V, E, F, T> HasEdges for ComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTris for ComboMesh3<V, E, F, T> {
-    crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
+    crate::impl_has_tris!(HigherTri<F> zeroed, Mwb = B0, Higher = B1);
 
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
@@ -112,7 +113,7 @@ impl<V, E, F, T> HasTets for ComboMesh3<V, E, F, T> {
     fn clear_tets_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
+impl<V: Default, E: Default, F: Default, T: Default> Default for ComboMesh3<V, E, F, T> {
     fn default() -> Self {
         ComboMesh3 {
             vertices: OrderedIdMap::default(),
@@ -120,37 +121,59 @@ impl<V, E, F, T> Default for ComboMesh3<V, E, F, T> {
             tris: FnvHashMap::default(),
             tets: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
+            default_f: Default::default,
+            default_t: Default::default,
         }
     }
 }
 
 impl<V, E, F, T> ComboMesh3<V, E, F, T> {
-    /// Creates an empty tri mesh.
-    pub fn new() -> Self {
+    /// Creates an empty tet mesh.
+    pub fn new() -> Self where V: Default, E: Default, F: Default, T: Default {
         Self::default()
+    }
+
+    /// Creates an empty tet mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F, tet: fn() -> T) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            tets: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+            default_f: tri,
+            default_t: tet,
+        }
     }
 }
 
-/// A position-containing tri mesh
+/// A position-containing tet mesh
 pub type Mesh3<V, E, F, T, D> = ComboMesh3<(PtN<D>, V), E, F, T>;
 
-/// A 2D-position-containing tri mesh
+/// A 2D-position-containing tet mesh
 pub type Mesh32<V, E, F, T> = Mesh3<V, E, F, T, U2>;
 
-/// A 3D-position-containing tri mesh
+/// A 3D-position-containing tet mesh
 pub type Mesh33<V, E, F, T> = Mesh3<V, E, F, T, U3>;
 
 /// A combinatorial simplicial 3-complex with the mwb property,
 /// which forces every oriented triangle to be part of at most 1 tetrahedron.
 /// Please don't call `add_edge` or `add_tri` on this.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct MwbComboMesh3<V, E, F, T> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, HigherTri<F>>,
     tets: FnvHashMap<TetId, MwbTet<T>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
+    default_f: fn() -> F,
+    default_t: fn() -> T,
 }
 crate::impl_index_vertex!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_edge!(MwbComboMesh3<V, E, F, T>);
@@ -158,7 +181,7 @@ crate::impl_index_tri!(MwbComboMesh3<V, E, F, T>);
 crate::impl_index_tet!(MwbComboMesh3<V, E, F, T>);
 
 impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed zeroed, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -176,7 +199,7 @@ impl<V, E, F, T> HasVertices for MwbComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
+    crate::impl_has_edges!(HigherEdge<E> zeroed zeroed, Mwb = B0, Higher = B1);
 
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
@@ -209,7 +232,7 @@ impl<V, E, F, T> HasEdges for MwbComboMesh3<V, E, F, T> {
 }
 
 impl<V, E, F, T> HasTris for MwbComboMesh3<V, E, F, T> {
-    crate::impl_has_tris!(HigherTri<F>, Mwb = B0, Higher = B1);
+    crate::impl_has_tris!(HigherTri<F> zeroed, Mwb = B0, Higher = B1);
 
     type WithoutTris = ComboMesh1<V, E>;
     type WithMwbF = MwbComboMesh2<V, E, F>;
@@ -242,7 +265,7 @@ impl<V, E, F, T> HasTets for MwbComboMesh3<V, E, F, T> {
     fn clear_tets_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E, F, T> Default for MwbComboMesh3<V, E, F, T> {
+impl<V: Default, E: Default, F: Default, T: Default> Default for MwbComboMesh3<V, E, F, T> {
     fn default() -> Self {
         MwbComboMesh3 {
             vertices: OrderedIdMap::default(),
@@ -250,26 +273,42 @@ impl<V, E, F, T> Default for MwbComboMesh3<V, E, F, T> {
             tris: FnvHashMap::default(),
             tets: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
+            default_f: Default::default,
+            default_t: Default::default,
         }
     }
 }
 
 impl<V, E, F, T> MwbComboMesh3<V, E, F, T> {
-    /// Creates an empty tri mesh.
-    pub fn new() -> Self {
+    /// Creates an empty tet mesh.
+    pub fn new() -> Self where V: Default, E:Default, F: Default, T: Default {
         Self::default()
+    }
+
+    /// Creates an empty tet mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F, tet: fn() -> T) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            tets: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+            default_f: tri,
+            default_t: tet,
+        }
     }
 }
 
 mod internal {
     use crate::edge::Link;
     use crate::vertex::VertexId;
-    #[cfg(feature = "serialize")]
-    use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherTri<F> {
         /// Targets from the same edge for each of the edges,
         /// whether the triangle actually exists or not
@@ -292,7 +331,6 @@ mod internal {
     /// A tetrahedron of an tet mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Tet<T> {
         /// Targets from the same triangle for each of the triangle,
         /// whether the tetrahedron actually exists or not
@@ -305,7 +343,6 @@ mod internal {
     /// A tetrahedron of a mwb tet mesh.
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct MwbTet<T> {
         value: T,
     }
@@ -527,7 +564,7 @@ mod tests {
         let mut mesh = ComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0),
+            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1),
             None
         );
         assert_tris(
@@ -542,11 +579,11 @@ mod tests {
         assert_tets(&mesh, vec![([ids[0], ids[1], ids[3], ids[2]], 1)]);
 
         // Prematurely add triangle
-        mesh.add_tri([ids[1], ids[2], ids[0]], 1, || 0);
+        mesh.add_tri([ids[1], ids[2], ids[0]], 1);
 
         // Add twin
         assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2, || 0, || 0),
+            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2),
             None
         );
         assert_tris(
@@ -572,7 +609,7 @@ mod tests {
 
         // Modify tet
         assert_eq!(
-            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3, || 0, || 0),
+            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3),
             Some(2)
         );
         assert_tris(
@@ -610,7 +647,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
         assert_eq!(mesh.num_tris(), 23);
         assert_tets(&mesh, tets);
     }
@@ -626,7 +663,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
@@ -658,7 +695,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 35);
@@ -696,7 +733,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 34);
@@ -746,7 +783,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
         assert_eq!(mesh.num_tris(), 20);
@@ -798,15 +835,15 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[2], ids[3]]), Some(1));
         assert_eq!(
-            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7, || 0, || 0),
+            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7),
             None
         );
         assert_eq!(
-            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0),
+            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8),
             None
         );
         assert_eq!(mesh.num_tris(), 27);
@@ -895,7 +932,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_edges();
         assert_vertices(
@@ -928,7 +965,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_tris();
         assert_vertices(
@@ -981,7 +1018,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         mesh.clear_tets();
         assert_eq!(mesh.num_vertices(), 9);
@@ -1002,8 +1039,8 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
-        mesh.add_tri([ids[6], ids[7], ids[8]], 7, || 0);
+        mesh.extend_tets(tets.clone());
+        mesh.add_tri([ids[6], ids[7], ids[8]], 7);
 
         assert!(mesh.tet_walker_from_tri([ids[6], ids[7], ids[8]]).is_none());
 
@@ -1158,7 +1195,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
         mesh.add_edge([ids[6], ids[7]], 1);
 
         let set = mesh.edge_tris([ids[6], ids[7]]).collect::<FnvHashSet<_>>();
@@ -1192,7 +1229,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
         mesh.add_edge([ids[6], ids[7]], 1);
 
         let set = mesh.vertex_tris(ids[7]).collect::<FnvHashSet<_>>();
@@ -1229,8 +1266,8 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
-        mesh.add_tri([ids[6], ids[7], ids[8]], 7, || 0);
+        mesh.extend_tets(tets.clone());
+        mesh.add_tri([ids[6], ids[7], ids[8]], 7);
 
         let set = mesh
             .tri_tets([ids[6], ids[7], ids[8]])
@@ -1270,8 +1307,8 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
-        mesh.add_tri([ids[6], ids[7], ids[8]], 7, || 0);
+        mesh.extend_tets(tets.clone());
+        mesh.add_tri([ids[6], ids[7], ids[8]], 7);
 
         let set = mesh.edge_tets([ids[7], ids[8]]).collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
@@ -1310,8 +1347,8 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
-        mesh.add_tri([ids[6], ids[7], ids[8]], 7, || 0);
+        mesh.extend_tets(tets.clone());
+        mesh.add_tri([ids[6], ids[7], ids[8]], 7);
 
         let set = mesh.vertex_tets(ids[8]).collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();
@@ -1356,7 +1393,7 @@ mod tests {
         let mut mesh = MwbComboMesh3::<usize, usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
         assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1, || 0, || 0),
+            mesh.add_tet([ids[1], ids[0], ids[2], ids[3]], 1),
             None
         );
         assert_tris_m(
@@ -1372,7 +1409,7 @@ mod tests {
 
         // Add twin
         assert_eq!(
-            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2, || 0, || 0),
+            mesh.add_tet([ids[1], ids[0], ids[3], ids[2]], 2),
             None
         );
         assert_tris_m(
@@ -1398,7 +1435,7 @@ mod tests {
 
         // Modify tet
         assert_eq!(
-            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3, || 0, || 0),
+            mesh.add_tet([ids[3], ids[2], ids[1], ids[0]], 3),
             Some(2)
         );
         assert_tris_m(
@@ -1436,7 +1473,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
         assert_eq!(mesh.num_tris(), 20);
         assert_tets_m(
             &mesh,
@@ -1461,7 +1498,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_vertex(ids[1]), Some(6)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
@@ -1493,7 +1530,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_edge([ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
@@ -1531,7 +1568,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tri([ids[2], ids[1], ids[0]]), Some(0)); // Only 1 tet should be removed
         assert_eq!(mesh.num_edges(), 30);
@@ -1558,7 +1595,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
         assert_eq!(mesh.num_tris(), 16);
@@ -1596,15 +1633,15 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         assert_eq!(mesh.remove_tet([ids[0], ids[1], ids[3], ids[2]]), Some(2));
         assert_eq!(
-            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7, || 0, || 0),
+            mesh.add_tet([ids[7], ids[6], ids[4], ids[8]], 7),
             None
         );
         assert_eq!(
-            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8, || 0, || 0),
+            mesh.add_tet([ids[0], ids[1], ids[2], ids[3]], 8),
             None
         );
         assert_eq!(mesh.num_tris(), 20);
@@ -1631,7 +1668,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         mesh.clear_vertices();
         assert_vertices_m(&mesh, vec![]);
@@ -1651,7 +1688,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets, || 0, || 0);
+        mesh.extend_tets(tets);
 
         mesh.clear_edges();
         assert_vertices_m(
@@ -1683,7 +1720,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets, || 0, || 0);
+        mesh.extend_tets(tets);
 
         mesh.clear_tris();
         assert_vertices_m(
@@ -1715,7 +1752,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         mesh.clear_tets();
         assert_eq!(mesh.num_vertices(), 9);
@@ -1735,7 +1772,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         let walker = mesh.tet_walker_from_edge_edge([ids[2], ids[3]], [ids[1], ids[0]]);
         assert_eq!(walker.edge(), EdgeId([ids[2], ids[3]]));
@@ -1824,7 +1861,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         let set = mesh
             .tri_tets([ids[4], ids[5], ids[6]])
@@ -1846,7 +1883,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         let list = mesh.edge_tets([ids[6], ids[7]]).collect::<Vec<_>>();
         assert_eq!(list.len(), 1);
@@ -1868,7 +1905,7 @@ mod tests {
             ([ids[6], ids[5], ids[4], ids[3]], 5),
             ([ids[6], ids[7], ids[4], ids[5]], 6),
         ];
-        mesh.extend_tets(tets.clone(), || 0, || 0);
+        mesh.extend_tets(tets.clone());
 
         let list = mesh.vertex_tets(ids[7]).collect::<Vec<_>>();
         assert_eq!(list.len(), 1);

@@ -5,17 +5,14 @@ use idmap::{table::DenseEntryTable, OrderedIdMap};
 use nalgebra::allocator::Allocator;
 use nalgebra::dimension::U3;
 use nalgebra::{DefaultAllocator, DimName, Point};
-#[cfg(feature = "serialize")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::iter::Map;
-use typenum::{Bit, B1};
+use typenum::{Bit, B1, B0};
 
 use crate::private::{Key, Lock};
-use crate::tet::Tet;
 use crate::{
-    edge::{Edge, HasEdges},
     tet::{HasTets, WithTets},
-    tri::{HasTris, Tri},
 };
 
 pub(crate) type PositionDim<P> = <P as Position>::Dim;
@@ -37,7 +34,11 @@ where
     /// The actual position represented
     fn position(&self) -> PositionPoint<Self>;
 
-    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self;
+    /// Set the position of `self`
+    fn with_position(self, point: PositionPoint<Self>) -> Self;
+
+    /// Construct a new object with a point and a rest of the type
+    fn with_position_rest(point: PositionPoint<Self>, rest: Self::Rest) -> Self;
 }
 
 /// Not a blanket implementation because
@@ -53,7 +54,11 @@ where
         self.clone()
     }
 
-    fn with_position(point: PositionPoint<Self>, _rest: Self::Rest) -> Self {
+    fn with_position(self, point: PositionPoint<Self>) -> Self {
+        point
+    }
+
+    fn with_position_rest(point: PositionPoint<Self>, _rest: Self::Rest) -> Self {
         point
     }
 }
@@ -69,7 +74,11 @@ where
         self.0.clone()
     }
 
-    fn with_position(point: PositionPoint<Self>, rest: Self::Rest) -> Self {
+    fn with_position(self, point: PositionPoint<Self>) -> Self {
+        (point, self.1)
+    }
+
+    fn with_position_rest(point: PositionPoint<Self>, rest: Self::Rest) -> Self {
         (point, rest)
     }
 }
@@ -80,7 +89,7 @@ pub type IdType = u32;
 /// An index to a vertex of a mesh.
 /// Will not be invalidated unless the vertex gets removed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VertexId(pub(crate) IdType);
 crate::impl_integer_id!(VertexId(IdType));
 
@@ -156,7 +165,8 @@ pub trait HasVertices {
     type HigherV: Bit;
 
     #[doc(hidden)]
-    fn from_v_r<VI: IntoIterator<Item = (VertexId, Self::V)>, L: Lock>(vertices: VI) -> Self;
+    fn from_v_r<VI: IntoIterator<Item = (VertexId, Self::V)>, L: Lock>(vertices: VI, default_v: fn() -> Self::V) -> Self
+        where Self: HasVertices<HigherV = B0>;
 
     #[doc(hidden)]
     fn into_v_r<L: Lock>(self) -> IntoVertices<Self::Vertex>;
@@ -178,6 +188,14 @@ pub trait HasVertices {
 
     #[doc(hidden)]
     fn clear_vertices_higher<L: Lock>(&mut self);
+
+    #[doc(hidden)]
+    fn default_v_r<L: Lock>(&self) -> fn() -> Self::V;
+
+    /// Gets the default value of a vertex.
+    fn default_vertex(&self) -> Self::V {
+        self.default_v_r::<Key>()()
+    }
 
     /// Gets the number of vertices.
     fn num_vertices(&self) -> usize {
@@ -308,13 +326,21 @@ where
         (self.position(v0) - self.position(v1)).norm_squared()
     }
 
-    /// Adds a vertex with some position and the rest of the vertex value
+    /// Adds a vertex with some position and the default rest of the vertex value
     fn add_with_position(
+        &mut self,
+        position: HasPositionPoint<Self>,
+    ) -> VertexId {
+        self.add_vertex(self.default_vertex().with_position(position))
+    }
+
+    /// Adds a vertex with some position and the rest of the vertex value
+    fn add_with_position_rest(
         &mut self,
         position: HasPositionPoint<Self>,
         rest: HasPositionRest<Self>,
     ) -> VertexId {
-        self.add_vertex(<Self::V as Position>::with_position(position, rest))
+        self.add_vertex(<Self::V as Position>::with_position_rest(position, rest))
     }
 
     /// Gets the bounding box of the mesh
@@ -350,31 +376,27 @@ where
     /// Turns this mesh into a Delaunay tetrahedralization of its vertices
     fn delaunay_tets<E, F, T>(
         self,
-        tet_value_fn: impl Fn() -> T,
-        tri_value_fn: impl Fn() -> F + Clone,
-        edge_value_fn: impl Fn() -> E + Clone,
-        v_rest_fn: impl Fn() -> <<Self as HasVertices>::V as Position>::Rest,
+        default_edge: fn() -> E,
+        default_tri: fn() -> F,
+        default_tet: fn() -> T,
     ) -> <Self::WithTets as HasTets>::WithMwbT
     where
         Self: Sized,
         Self: WithTets<<Self as HasVertices>::V, E, F, T>,
     {
-        let mesh = <Self::WithTets as HasTets>::WithMwbT::from_veft_r::<_, _, _, _, _, _, Key>(
+        let default_v = self.default_v_r::<Key>();
+        let mesh = <Self::WithTets as HasTets>::WithMwbT::from_veft_r::<_, _, _, _, Key>(
             self.into_v_r::<Key>(),
             vec![],
             vec![],
             vec![],
-            tri_value_fn.clone(),
-            edge_value_fn.clone(),
+            default_v,
+            default_edge,
+            default_tri,
+            default_tet,
         );
 
-        crate::tetrahedralize::delaunay_tets(
-            mesh,
-            tet_value_fn,
-            tri_value_fn,
-            edge_value_fn,
-            v_rest_fn,
-        )
+        crate::tetrahedralize::delaunay_tets(mesh)
     }
 }
 
@@ -519,7 +541,7 @@ macro_rules! impl_vertex_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_vertices {
-    ($vertex:ident<$v:ident>, Higher = $higher:ty) => {
+    ($vertex:ident<$v:ident> $($z:ident)*, Higher = $higher:ty) => {
         type Vertex = $vertex<$v>;
         type V = $v;
         type HigherV = $higher;
@@ -534,8 +556,15 @@ macro_rules! impl_has_vertices {
             L: crate::private::Lock,
         >(
             vertices: VI,
+            default_v: fn() -> Self::V,
         ) -> Self {
-            let mut mesh = Self::default();
+            use typenum::Bit;
+            if <$higher>::BOOL {
+                unreachable!()
+            }
+            // The code below will not be executed if the value is invalid.
+            #[allow(invalid_value)]
+            let mut mesh = Self::with_defaults(default_v $(, unsafe { std::mem::$z() })*);
             mesh.extend_vertices_with_ids(vertices);
             mesh
         }
@@ -565,6 +594,10 @@ macro_rules! impl_has_vertices {
 
         fn next_vertex_id_mut<L: crate::private::Lock>(&mut self) -> &mut crate::vertex::IdType {
             &mut self.next_vertex_id
+        }
+
+        fn default_v_r<L: crate::private::Lock>(&self) -> fn() -> Self::V {
+            self.default_v
         }
     };
 }

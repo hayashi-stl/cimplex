@@ -1,7 +1,5 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
@@ -28,19 +26,21 @@ use internal::{HigherEdge, MwbTri, Tri};
 /// The triangle manipulation methods can either be called with an array of 3 `VertexId`s
 /// or an `TriId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh2<V, E, F> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, Tri<F>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
+    default_f: fn() -> F,
 }
 crate::impl_index_vertex!(ComboMesh2<V, E, F>);
 crate::impl_index_edge!(ComboMesh2<V, E, F>);
 crate::impl_index_tri!(ComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -57,7 +57,7 @@ impl<V, E, F> HasVertices for ComboMesh2<V, E, F> {
 }
 
 impl<V, E, F> HasEdges for ComboMesh2<V, E, F> {
-    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
+    crate::impl_has_edges!(HigherEdge<E> zeroed, Mwb = B0, Higher = B1);
 
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
@@ -84,21 +84,37 @@ impl<V, E, F> HasTris for ComboMesh2<V, E, F> {
     fn clear_tris_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E, F> Default for ComboMesh2<V, E, F> {
+impl<V: Default, E: Default, F: Default> Default for ComboMesh2<V, E, F> {
     fn default() -> Self {
         ComboMesh2 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             tris: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
+            default_f: Default::default,
         }
     }
 }
 
 impl<V, E, F> ComboMesh2<V, E, F> {
     /// Creates an empty tri mesh.
-    pub fn new() -> Self {
+    pub fn new() -> Self where V: Default, E: Default, F: Default {
         Self::default()
+    }
+
+    /// Creates an empty tri mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+            default_f: tri,
+        }
     }
 }
 
@@ -115,19 +131,21 @@ pub type Mesh23<V, E, F> = Mesh2<V, E, F, U3>;
 /// which forces every oriented edge to be part of at most 1 triangle.
 /// Please don't call `add_edge` on this.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct MwbComboMesh2<V, E, F> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, HigherEdge<E>>,
     tris: FnvHashMap<TriId, MwbTri<F>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
+    default_f: fn() -> F,
 }
 crate::impl_index_vertex!(MwbComboMesh2<V, E, F>);
 crate::impl_index_edge!(MwbComboMesh2<V, E, F>);
 crate::impl_index_tri!(MwbComboMesh2<V, E, F>);
 
 impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed zeroed, Higher = B1);
 
     fn clear_vertices_higher<L: Lock>(&mut self) {
         self.tris.clear();
@@ -144,7 +162,7 @@ impl<V, E, F> HasVertices for MwbComboMesh2<V, E, F> {
 }
 
 impl<V, E, F> HasEdges for MwbComboMesh2<V, E, F> {
-    crate::impl_has_edges!(HigherEdge<E>, Mwb = B0, Higher = B1);
+    crate::impl_has_edges!(HigherEdge<E> zeroed, Mwb = B0, Higher = B1);
 
     type WithoutEdges = ComboMesh0<V>;
     type WithMwbE = MwbComboMesh1<V, E>;
@@ -176,32 +194,45 @@ impl<V, E, F> HasTris for MwbComboMesh2<V, E, F> {
     fn clear_tris_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E, F> Default for MwbComboMesh2<V, E, F> {
+impl<V: Default, E: Default, F: Default> Default for MwbComboMesh2<V, E, F> {
     fn default() -> Self {
         MwbComboMesh2 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             tris: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
+            default_f: Default::default,
         }
     }
 }
 
 impl<V, E, F> MwbComboMesh2<V, E, F> {
     /// Creates an empty tri mesh.
-    pub fn new() -> Self {
+    pub fn new() -> Self where V: Default, E: Default, F: Default {
         Self::default()
+    }
+
+    /// Creates an empty tri mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E, tri: fn() -> F) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            tris: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+            default_f: tri,
+        }
     }
 }
 
 pub(crate) mod internal {
     use crate::edge::Link;
     use crate::vertex::VertexId;
-    #[cfg(feature = "serialize")]
-    use serde::{Deserialize, Serialize};
 
     #[derive(Clone, Debug)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherEdge<E> {
         /// Outgoing targets from the same vertex, whether the edge actually exists or not
         links: [Link<VertexId>; 2],
@@ -225,7 +256,6 @@ pub(crate) mod internal {
     /// A triangle of an tri mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Tri<F> {
         /// Targets from the same edge for each of the edges,
         /// whether the triangle actually exists or not
@@ -238,7 +268,7 @@ pub(crate) mod internal {
     /// A triangle of an tri mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct MwbTri<F> {
         value: F,
     }
@@ -402,7 +432,7 @@ mod tests {
     fn test_add_tri() {
         let mut mesh = ComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5, || 0), None);
+        assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5), None);
 
         assert_edges(
             &mesh,
@@ -418,7 +448,7 @@ mod tests {
         mesh.add_edge([ids[1], ids[2]], 1);
 
         // Add twin
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6, || 0), None);
+        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6), None);
         assert_edges(
             &mesh,
             vec![
@@ -436,7 +466,7 @@ mod tests {
         );
 
         // Modify tri
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7, || 0), Some(6));
+        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7), Some(6));
         assert_edges(
             &mesh,
             vec![
@@ -467,7 +497,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris.clone(), || 0);
+        mesh.extend_tris(tris.clone());
 
         assert_edges(
             &mesh,
@@ -610,7 +640,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         assert_eq!(mesh.remove_tri([ids[0], ids[1], ids[2]]), Some(1)); // first tri with edge
         assert_edges(
@@ -768,7 +798,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_edges();
         assert_vertices(
@@ -800,7 +830,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_tris();
         assert_vertices(
@@ -852,7 +882,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
         mesh.add_edge([ids[6], ids[7]], 1);
 
         assert!(mesh.tri_walker_from_edge([ids[6], ids[7]]).is_none());
@@ -917,7 +947,7 @@ mod tests {
             ([ids[5], ids[6], ids[4]], 5),
             ([ids[4], ids[6], ids[5]], 6),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
         mesh.add_edge([ids[6], ids[7]], 1);
 
         let set = mesh.edge_tris([ids[6], ids[7]]).collect::<FnvHashSet<_>>();
@@ -951,7 +981,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
         mesh.add_edge([ids[6], ids[7]], 1);
 
         let set = mesh.vertex_tris(ids[7]).collect::<FnvHashSet<_>>();
@@ -990,7 +1020,7 @@ mod tests {
     fn test_add_tri_m() {
         let mut mesh = MwbComboMesh2::<usize, usize, usize>::default();
         let ids = mesh.extend_vertices(vec![3, 6, 9, 2]);
-        assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5, || 0), None);
+        assert_eq!(mesh.add_tri([ids[1], ids[0], ids[2]], 5), None);
 
         assert_edges_m(
             &mesh,
@@ -1003,7 +1033,7 @@ mod tests {
         assert_tris_m(&mesh, vec![([ids[0], ids[2], ids[1]], 5)]);
 
         // Add twin
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6, || 0), None);
+        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 6), None);
         assert_edges_m(
             &mesh,
             vec![
@@ -1021,7 +1051,7 @@ mod tests {
         );
 
         // Modify tri
-        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7, || 0), Some(6));
+        assert_eq!(mesh.add_tri([ids[1], ids[2], ids[0]], 7), Some(6));
         assert_edges_m(
             &mesh,
             vec![
@@ -1051,7 +1081,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris.clone(), || 0);
+        mesh.extend_tris(tris.clone());
 
         assert_edges_m(
             &mesh,
@@ -1091,7 +1121,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         assert_eq!(mesh.remove_tri([ids[3], ids[1], ids[2]]), Some(2)); // last tri with edge
         assert_edges_m(
@@ -1152,7 +1182,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_vertices();
         assert_vertices_m(&mesh, vec![]);
@@ -1170,7 +1200,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_edges();
         assert_vertices_m(
@@ -1200,7 +1230,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         mesh.clear_tris();
         assert_vertices_m(
@@ -1246,7 +1276,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         let walker = mesh.tri_walker_from_edge_vertex([ids[0], ids[1]], ids[2]);
         assert_eq!(walker.edge(), EdgeId([ids[0], ids[1]]));
@@ -1301,7 +1331,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         let set = mesh.edge_tris([ids[3], ids[1]]).collect::<FnvHashSet<_>>();
         let expected = vec![TriId([ids[1], ids[2], ids[3]])]
@@ -1320,7 +1350,7 @@ mod tests {
             ([ids[4], ids[1], ids[5]], 4),
             ([ids[5], ids[6], ids[4]], 5),
         ];
-        mesh.extend_tris(tris, || 0);
+        mesh.extend_tris(tris);
 
         let set = mesh.vertex_tris(ids[7]).collect::<FnvHashSet<_>>();
         let expected = vec![].into_iter().collect::<FnvHashSet<_>>();

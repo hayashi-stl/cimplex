@@ -15,6 +15,3 @@ fnv = "1.0.7"
 serde = { package = "serde", version = "1.0.117", optional = true, features = ["derive"] }
 simplicity = "0.2.0"
 float-ord = "0.2.0"
-
-[features]
-serialize = ["serde", "idmap/serde"]

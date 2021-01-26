@@ -2,7 +2,7 @@
 
 use fnv::FnvHashMap;
 use nalgebra::{allocator::Allocator, DefaultAllocator};
-#[cfg(feature = "serialize")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
@@ -28,7 +28,7 @@ use crate::{
 /// with the smallest two indexes first.
 /// No two vertices are allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TetId(pub(crate) [VertexId; 4]);
 
 impl TryFrom<[VertexId; 4]> for TetId {
@@ -275,16 +275,16 @@ pub trait HasTets: HasTris<HigherF = B1> {
         EI: IntoIterator<Item = (EdgeId, Self::E)>,
         FI: IntoIterator<Item = (TriId, Self::F)>,
         TI: IntoIterator<Item = (TetId, Self::T)>,
-        FF: Fn() -> Self::F + Clone,
-        EF: Fn() -> Self::E + Clone,
         L: Lock,
     >(
         vertices: VI,
         edges: EI,
         tris: FI,
         tets: TI,
-        default_tri_fn: FF,
-        default_edge_fn: EF,
+        default_v: fn() -> Self::V,
+        default_e: fn() -> Self::E,
+        default_f: fn() -> Self::F,
+        default_t: fn() -> Self::T,
     ) -> Self;
 
     #[doc(hidden)]
@@ -308,6 +308,14 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     #[doc(hidden)]
     fn clear_tets_higher<L: Lock>(&mut self);
+
+    #[doc(hidden)]
+    fn default_t_r<L: Lock>(&self) -> fn() -> Self::T;
+
+    /// Gets the default value of a tetrahedron.
+    fn default_tet(&self) -> Self::T {
+        self.default_t_r::<Key>()()
+    }
 
     /// Gets the number of tetrahedrons.
     fn num_tets(&self) -> usize {
@@ -461,14 +469,12 @@ pub trait HasTets: HasTris<HigherF = B1> {
         &mut self,
         vertices: TI,
         value: Self::T,
-        tri_value: impl Fn() -> Self::F,
-        edge_value: impl Fn() -> Self::E + Clone,
     ) -> Option<Self::T> {
         let id = vertices.try_into().ok().unwrap();
 
         for tri in &id.tris() {
             if self.tri(*tri).is_none() {
-                self.add_tri(*tri, tri_value(), edge_value.clone());
+                self.add_tri(*tri, self.default_tri());
             }
         }
 
@@ -539,11 +545,9 @@ pub trait HasTets: HasTris<HigherF = B1> {
     fn extend_tets<TI: TryInto<TetId>, I: IntoIterator<Item = (TI, Self::T)>>(
         &mut self,
         iter: I,
-        tri_value: impl Fn() -> Self::F + Clone,
-        edge_value: impl Fn() -> Self::E + Clone,
     ) {
         iter.into_iter().for_each(|(id, value)| {
-            self.add_tet(id, value, tri_value.clone(), edge_value.clone());
+            self.add_tet(id, value);
         })
     }
 
@@ -1227,22 +1231,22 @@ macro_rules! impl_has_tets {
             EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::Edge>::E)>,
             FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::Tri>::F)>,
             TI: IntoIterator<Item = (crate::tet::TetId, <Self::Tet as crate::tet::Tet>::T)>,
-            FF: Fn() -> <Self::Tri as crate::tri::Tri>::F + Clone,
-            EF: Fn() -> <Self::Edge as crate::edge::Edge>::E + Clone,
             L: crate::private::Lock,
         >(
             vertices: VI,
             edges: EI,
             tris: FI,
             tets: TI,
-            default_tri_fn: FF,
-            default_edge_fn: EF,
+            default_v: fn() -> Self::V,
+            default_e: fn() -> Self::E,
+            default_f: fn() -> Self::F,
+            default_t: fn() -> Self::T,
         ) -> Self {
-            let mut mesh = Self::default();
+            let mut mesh = Self::with_defaults(default_v, default_e, default_f, default_t);
             mesh.extend_vertices_with_ids(vertices);
             mesh.extend_edges(edges);
-            mesh.extend_tris(tris, default_edge_fn.clone());
-            mesh.extend_tets(tets, default_tri_fn, default_edge_fn);
+            mesh.extend_tris(tris);
+            mesh.extend_tets(tets);
             mesh
         }
 
@@ -1282,6 +1286,10 @@ macro_rules! impl_has_tets {
             &mut self,
         ) -> &mut FnvHashMap<crate::tet::TetId, Self::Tet> {
             &mut self.tets
+        }
+
+        fn default_t_r<L: crate::private::Lock>(&self) -> fn() -> Self::T {
+            self.default_t
         }
     };
 }

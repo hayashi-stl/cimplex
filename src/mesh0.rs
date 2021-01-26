@@ -1,6 +1,4 @@
 use idmap::OrderedIdMap;
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
 use typenum::{B0, U2, U3};
 
@@ -14,10 +12,10 @@ use internal::Vertex;
 /// Basically a vertex list. Also known as a vertex mesh.
 /// Each vertex stores a value of type `V`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh0<V> {
     vertices: OrderedIdMap<VertexId, Vertex<V>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
 }
 
 crate::impl_index_vertex!(ComboMesh0<V>);
@@ -30,19 +28,29 @@ impl<V> HasVertices for ComboMesh0<V> {
     fn clear_vertices_higher<L: Lock>(&mut self) {}
 }
 
-impl<V> Default for ComboMesh0<V> {
+impl<V: Default> Default for ComboMesh0<V> {
     fn default() -> Self {
         Self {
             vertices: OrderedIdMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
         }
     }
 }
 
 impl<V> ComboMesh0<V> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self {
+    pub fn new() -> Self where V: Default {
         Self::default()
+    }
+
+    /// Creates an empty vertex mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+        }
     }
 }
 
@@ -61,7 +69,7 @@ impl<V> IntoIterator for ComboMesh0<V> {
     }
 }
 
-impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
+impl<V: Default> FromIterator<(VertexId, V)> for ComboMesh0<V> {
     fn from_iter<T: IntoIterator<Item = (VertexId, V)>>(iter: T) -> Self {
         let mut mesh = Self {
             vertices: iter
@@ -69,6 +77,7 @@ impl<V> FromIterator<(VertexId, V)> for ComboMesh0<V> {
                 .map(|(id, v)| (id, VertexIntr::new::<Key>(id, v)))
                 .collect(),
             next_vertex_id: 0,
+            default_v: Default::default,
         };
         mesh.next_vertex_id = mesh.vertices.len() as IdType;
         mesh
@@ -94,12 +103,9 @@ pub type Mesh02<V> = Mesh0<V, U2>;
 pub type Mesh03<V> = Mesh0<V, U3>;
 
 mod internal {
-    #[cfg(feature = "serialize")]
-    use serde::{Deserialize, Serialize};
 
     /// Vertex storage
     #[derive(Clone, Debug)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Vertex<V> {
         value: V,
     }
@@ -115,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_bounding_box() {
-        let mut mesh = ComboMesh0::new();
+        let mut mesh = ComboMesh0::with_defaults(|| Point2::origin());
         mesh.extend_vertices(vec![
             Point2::new(0.0, 1.0),
             Point2::new(-1.0, 2.0),

@@ -57,10 +57,6 @@ where
 /// to avoid the concave tetrahedralization problem that happens with a super tet.
 pub(crate) fn delaunay_tets<M>(
     mut mesh: M,
-    tet_t: impl Fn() -> M::T,
-    tri_f: impl Fn() -> M::F + Clone,
-    edge_e: impl Fn() -> M::E + Clone,
-    v_rest: impl Fn() -> <M::V as Position>::Rest,
 ) -> M
 where
     M: HasTets<MwbT = B1> + HasPosition3D,
@@ -74,7 +70,7 @@ where
     let mut v_ids = mesh.vertex_ids().copied().collect::<Vec<_>>();
 
     // Ghost vertex
-    let g = mesh.add_with_position(Point1::new(f64::INFINITY).xxx(), v_rest());
+    let g = mesh.add_with_position(Point1::new(f64::INFINITY).xxx());
 
     // First tet
     let v0 = v_ids.pop().unwrap();
@@ -85,11 +81,11 @@ where
         std::mem::swap(&mut v2, &mut v3);
     }
     let first = TetId::from_valid([v0, v1, v2, v3]);
-    mesh.add_tet([v0, v1, v2, v3], tet_t(), tri_f.clone(), edge_e.clone());
+    mesh.add_tet([v0, v1, v2, v3], mesh.default_tet());
 
     // Ghost tets
     for tri in &first.tris() {
-        mesh.add_tet([tri.0[0], tri.0[2], tri.0[1], g], tet_t(), tri_f.clone(), edge_e.clone());
+        mesh.add_tet([tri.0[0], tri.0[2], tri.0[1], g], mesh.default_tet());
     }
 
     mesh
@@ -102,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_in_sphere_ghost() {
-        let mut mesh = MwbComboMesh3::<Point3<f64>, (), (), ()>::default();
+        let mut mesh = MwbComboMesh3::<Point3<f64>, (), (), ()>::with_defaults(|| Point3::origin(), || (), || (), || ());
         let ids = mesh.extend_vertices(vec![
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(1.0, 0.0, 0.0),
@@ -111,7 +107,7 @@ mod tests {
             Point3::new(0.5, 0.3, 0.6),
         ]);
         let tet = TetId::from_valid([ids[0], ids[1], ids[3], ids[2]]);
-        mesh.add_tet(tet, (), || (), || ());
+        mesh.add_tet(tet, ());
 
         assert!(!in_sphere_with_ghosts(&mesh, tet, ids[4], ids[0]));
         assert!(in_sphere_with_ghosts(&mesh, tet, ids[4], ids[1]));
@@ -121,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_in_sphere_no_ghost() {
-        let mut mesh = MwbComboMesh3::<Point3<f64>, (), (), ()>::default();
+        let mut mesh = MwbComboMesh3::<Point3<f64>, (), (), ()>::with_defaults(|| Point3::origin(), || (), || (), || ());
         let ids = mesh.extend_vertices(vec![
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(1.0, 0.0, 0.0),
@@ -130,7 +126,7 @@ mod tests {
             Point3::new(0.5, 0.3, 0.6),
         ]);
         let tet = TetId::from_valid([ids[0], ids[1], ids[3], ids[2]]);
-        mesh.add_tet(tet, (), || (), || ());
+        mesh.add_tet(tet, ());
 
         assert!(in_sphere_with_ghosts(&mesh, tet, ids[4], VertexId(5)));
     }

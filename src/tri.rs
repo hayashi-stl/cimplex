@@ -2,7 +2,7 @@
 
 use fnv::FnvHashMap;
 use nalgebra::{allocator::Allocator, DefaultAllocator};
-#[cfg(feature = "serialize")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
@@ -26,7 +26,7 @@ use crate::{
 /// with the smallest index first.
 /// No two vertices are allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TriId(pub(crate) [VertexId; 3]);
 
 impl TryFrom<[VertexId; 3]> for TriId {
@@ -198,7 +198,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     type F;
     type MwbF: Bit;
     type HigherF: Bit;
-    type WithoutTris: HasVertices<V = Self::V> + HasEdges<E = Self::E>;
+    type WithoutTris: HasVertices<V = Self::V> + HasEdges<E = Self::E, HigherE = B0>;
     // Can't upgrade without GATs
     //type WithTets: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F> + HasTets;
     type WithMwbF: HasVertices<V = Self::V>
@@ -213,14 +213,15 @@ pub trait HasTris: HasEdges<HigherE = B1> {
         VI: IntoIterator<Item = (VertexId, Self::V)>,
         EI: IntoIterator<Item = (EdgeId, Self::E)>,
         FI: IntoIterator<Item = (TriId, Self::F)>,
-        EF: Fn() -> Self::E + Clone,
         L: Lock,
     >(
         vertices: VI,
         edges: EI,
         tris: FI,
-        default_edge_fn: EF,
-    ) -> Self;
+        default_v: fn() -> Self::V,
+        default_e: fn() -> Self::E,
+        default_f: fn() -> Self::F,
+    ) -> Self where Self: HasTris<HigherF = B0>;
 
     #[doc(hidden)]
     fn into_vef_r<L: Lock>(
@@ -242,6 +243,14 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     #[doc(hidden)]
     fn clear_tris_higher<L: Lock>(&mut self);
+
+    #[doc(hidden)]
+    fn default_f_r<L: Lock>(&self) -> fn() -> Self::F;
+
+    /// Gets the default value of a triangle.
+    fn default_tri(&self) -> Self::F {
+        self.default_f_r::<Key>()()
+    }
 
     /// Gets the number of triangles.
     fn num_tris(&self) -> usize {
@@ -375,13 +384,12 @@ pub trait HasTris: HasEdges<HigherE = B1> {
         &mut self,
         vertices: FI,
         value: Self::F,
-        edge_value: impl Fn() -> Self::E,
     ) -> Option<Self::F> {
         let id = vertices.try_into().ok().unwrap();
 
         for edge in &id.edges() {
             if self.edge(*edge).is_none() {
-                self.add_edge(*edge, edge_value());
+                self.add_edge(*edge, self.default_edge());
             }
         }
 
@@ -449,10 +457,9 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, Self::F)>>(
         &mut self,
         iter: I,
-        edge_value: impl Fn() -> Self::E + Clone,
     ) {
         iter.into_iter().for_each(|(id, value)| {
-            self.add_tri(id, value, edge_value.clone());
+            self.add_tri(id, value);
         })
     }
 
@@ -1057,7 +1064,7 @@ macro_rules! impl_tri_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_tris {
-    ($tri:ident<$f:ident>, Mwb = $mwb:ty, Higher = $higher:ty) => {
+    ($tri:ident<$f:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ty) => {
         type Tri = $tri<$f>;
         type F = $f;
         type MwbF = $mwb;
@@ -1072,18 +1079,25 @@ macro_rules! impl_has_tris {
             >,
             EI: IntoIterator<Item = (crate::edge::EdgeId, <Self::Edge as crate::edge::Edge>::E)>,
             FI: IntoIterator<Item = (crate::tri::TriId, <Self::Tri as crate::tri::Tri>::F)>,
-            EF: Fn() -> <Self::Edge as crate::edge::Edge>::E + Clone,
             L: crate::private::Lock,
         >(
             vertices: VI,
             edges: EI,
             tris: FI,
-            default_edge_fn: EF,
+            default_v: fn() -> Self::V,
+            default_e: fn() -> Self::E,
+            default_f: fn() -> Self::F,
         ) -> Self {
-            let mut mesh = Self::default();
+            use typenum::Bit;
+            if <$higher>::BOOL {
+                unreachable!()
+            }
+            // The code below will not be executed if the value is invalid.
+            #[allow(invalid_value)]
+            let mut mesh = Self::with_defaults(default_v, default_e, default_f $(, unsafe { std::mem::$z() } )*);
             mesh.extend_vertices_with_ids(vertices);
             mesh.extend_edges(edges);
-            mesh.extend_tris(tris, default_edge_fn);
+            mesh.extend_tris(tris);
             mesh
         }
 
@@ -1118,6 +1132,10 @@ macro_rules! impl_has_tris {
             &mut self,
         ) -> &mut FnvHashMap<crate::tri::TriId, Self::Tri> {
             &mut self.tris
+        }
+
+        fn default_f_r<L: crate::private::Lock>(&self) -> fn() -> Self::F {
+            self.default_f
         }
     };
 }

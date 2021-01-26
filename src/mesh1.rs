@@ -1,8 +1,6 @@
 use edge::HasEdges;
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-#[cfg(feature = "serialize")]
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{B0, B1, U2, U3};
 
@@ -20,17 +18,18 @@ use internal::{Edge, HigherVertex, MwbEdge};
 /// The edge manipulation methods can either be called with an array of 2 `VertexId`s
 /// or an `EdgeId`.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct ComboMesh1<V, E> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, Edge<E>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
 }
 crate::impl_index_vertex!(ComboMesh1<V, E>);
 crate::impl_index_edge!(ComboMesh1<V, E>);
 
 impl<V, E> HasVertices for ComboMesh1<V, E> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.remove_edges(
@@ -57,20 +56,33 @@ impl<V, E> HasEdges for ComboMesh1<V, E> {
     fn clear_edges_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E> Default for ComboMesh1<V, E> {
+impl<V: Default, E: Default> Default for ComboMesh1<V, E> {
     fn default() -> Self {
         ComboMesh1 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
         }
     }
 }
 
 impl<V, E> ComboMesh1<V, E> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self {
+    pub fn new() -> Self where V: Default, E: Default {
         Self::default()
+    }
+
+    /// Creates an empty edge mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+        }
     }
 }
 
@@ -86,17 +98,19 @@ pub type Mesh13<V, E> = Mesh1<V, E, U3>;
 /// A combinatorial simplicial 1-complex with the mwb property,
 /// which forces every vertex to be a source of at most 1 edge and a target of at most 1 edge.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MwbComboMesh1<V, E> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, MwbEdge<E>>,
     next_vertex_id: IdType,
+    default_v: fn() -> V,
+    default_e: fn() -> E,
 }
 crate::impl_index_vertex!(MwbComboMesh1<V, E>);
 crate::impl_index_edge!(MwbComboMesh1<V, E>);
 
 impl<V, E> HasVertices for MwbComboMesh1<V, E> {
-    crate::impl_has_vertices!(HigherVertex<V>, Higher = B1);
+    crate::impl_has_vertices!(HigherVertex<V> zeroed, Higher = B1);
 
     fn remove_vertex_higher<L: Lock>(&mut self, vertex: VertexId) {
         self.vertex_edge_out(vertex)
@@ -122,33 +136,43 @@ impl<V, E> HasEdges for MwbComboMesh1<V, E> {
     fn clear_edges_higher<L: Lock>(&mut self) {}
 }
 
-impl<V, E> Default for MwbComboMesh1<V, E> {
+impl<V: Default, E: Default> Default for MwbComboMesh1<V, E> {
     fn default() -> Self {
         MwbComboMesh1 {
             vertices: OrderedIdMap::default(),
             edges: FnvHashMap::default(),
             next_vertex_id: 0,
+            default_v: Default::default,
+            default_e: Default::default,
         }
     }
 }
 
 impl<V, E> MwbComboMesh1<V, E> {
     /// Creates an empty vertex mesh.
-    pub fn new() -> Self {
+    pub fn new() -> Self where V: Default, E: Default {
         Self::default()
+    }
+
+    /// Creates an empty edge mesh with default values for elements.
+    pub fn with_defaults(vertex: fn() -> V, edge: fn() -> E) -> Self {
+        Self {
+            vertices: OrderedIdMap::default(),
+            edges: FnvHashMap::default(),
+            next_vertex_id: 0,
+            default_v: vertex,
+            default_e: edge,
+        }
     }
 }
 
 pub(crate) mod internal {
     use crate::edge::Link;
     use crate::vertex::VertexId;
-    #[cfg(feature = "serialize")]
-    use serde::{Deserialize, Serialize};
 
     //// A vertex of an edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct HigherVertex<V> {
         /// `source` is this vertex's id if there is no source
         source: VertexId,
@@ -162,7 +186,6 @@ pub(crate) mod internal {
     /// An edge of an edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct Edge<E> {
         /// Outgoing targets from the same vertex, whether the edge actually exists or not
         links: [Link<VertexId>; 2],
@@ -174,7 +197,6 @@ pub(crate) mod internal {
     /// An edge of a mwb edge mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
     pub struct MwbEdge<E> {
         value: E,
     }

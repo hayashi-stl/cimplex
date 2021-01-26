@@ -3,7 +3,7 @@
 use fnv::FnvHashMap;
 use nalgebra::allocator::Allocator;
 use nalgebra::DefaultAllocator;
-#[cfg(feature = "serialize")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
@@ -23,7 +23,7 @@ use crate::vertex::{HasVertices, Vertex, VertexId};
 /// An edge id is just the edge's vertices in order.
 /// The vertices are not allowed to be the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct EdgeId(pub(crate) [VertexId; 2]);
 
 impl TryFrom<[VertexId; 2]> for EdgeId {
@@ -101,7 +101,7 @@ pub type VertexEdgesIn<'a, M> =
 
 /// A link. Too lazy to refactor this into an internal module
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Link<T> {
     pub prev: T,
     pub next: T,
@@ -167,7 +167,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     type E;
     type MwbE: Bit;
     type HigherE: Bit;
-    type WithoutEdges: HasVertices<V = Self::V>;
+    type WithoutEdges: HasVertices<V = Self::V, HigherV = B0>;
     type WithMwbE: HasVertices<V = Self::V> + HasEdges<E = Self::E, MwbE = B1>;
     type WithoutMwbE: HasVertices<V = Self::V> + HasEdges<E = Self::E, MwbE = B0>;
 
@@ -179,7 +179,9 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     >(
         vertices: VI,
         edges: EI,
-    ) -> Self;
+        default_v: fn() -> Self::V,
+        default_e: fn() -> Self::E,
+    ) -> Self where Self: HasEdges<HigherE = B0>;
 
     #[doc(hidden)]
     fn into_ve_r<L: Lock>(self) -> (IntoVertices<Self::Vertex>, IntoEdges<Self::Edge>);
@@ -195,6 +197,14 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     #[doc(hidden)]
     fn clear_edges_higher<L: Lock>(&mut self);
+
+    #[doc(hidden)]
+    fn default_e_r<L: Lock>(&self) -> fn() -> Self::E;
+
+    /// Gets the default value of an edge.
+    fn default_edge(&self) -> Self::E {
+        self.default_e_r::<Key>()()
+    }
 
     /// Gets the number of edges.
     fn num_edges(&self) -> usize {
@@ -1027,7 +1037,7 @@ macro_rules! impl_edge_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_edges {
-    ($edge:ident<$e:ident>, Mwb = $mwb:ty, Higher = $higher:ty) => {
+    ($edge:ident<$e:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ty) => {
         type Edge = $edge<$e>;
         type E = $e;
         type MwbE = $mwb;
@@ -1045,8 +1055,16 @@ macro_rules! impl_has_edges {
         >(
             vertices: VI,
             edges: EI,
+            default_v: fn() -> Self::V,
+            default_e: fn() -> Self::E,
         ) -> Self {
-            let mut mesh = Self::default();
+            use typenum::Bit;
+            if <$higher>::BOOL {
+                unreachable!()
+            }
+            // The code below will not be executed if the value is invalid.
+            #[allow(invalid_value)]
+            let mut mesh = Self::with_defaults(default_v, default_e $(, unsafe { std::mem::$z() })*);
             mesh.extend_vertices_with_ids(vertices);
             mesh.extend_edges(edges);
             mesh
@@ -1078,6 +1096,10 @@ macro_rules! impl_has_edges {
             &mut self,
         ) -> &mut FnvHashMap<crate::edge::EdgeId, Self::Edge> {
             &mut self.edges
+        }
+
+        fn default_e_r<L: crate::private::Lock>(&self) -> fn() -> Self::E {
+            self.default_e
         }
     };
 }
