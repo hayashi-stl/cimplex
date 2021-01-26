@@ -9,18 +9,17 @@ use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
 use typenum::{Bit, B1};
 
-use crate::{edge::{EdgeId, HasEdges, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
+use crate::{edge::{EdgeId, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
     Tri,
     EdgeVertexOpps,
 };
 use crate::tri::{HasTris, TriId, TriWalker};
-use crate::vertex::HasVertices;
 use crate::{vertex::VertexId};
 use crate::{
-    edge::{Edge, Link},
-    vertex::{Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
+    edge::Link,
+    vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 use crate::private::{Lock, Key};
 
@@ -199,24 +198,6 @@ pub type EdgeTets<'a, M> = MapWith<EdgeId, TetId, EdgeEdgeOpps<'a, M>, fn(EdgeId
 pub type VertexTets<'a, M> =
     MapWith<VertexId, TetId, VertexTriOpps<'a, M>, fn(VertexId, TriId) -> TetId>;
 
-macro_rules! E {
-    () => {
-        <Self::Edge as Edge>::E
-    };
-}
-
-macro_rules! F {
-    () => {
-        <Self::Tri as Tri>::F
-    };
-}
-
-macro_rules! T {
-    () => {
-        <Self::Tet as Tet>::T
-    };
-}
-
 /// Tetrahedron attributes
 pub trait Tet {
     type T;
@@ -259,12 +240,12 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     #[doc(hidden)]
     fn from_veft_r<
-        VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
-        EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
-        FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
-        TI: IntoIterator<Item = (TetId, <Self::Tet as Tet>::T)>,
-        FF: Fn() -> <Self::Tri as Tri>::F + Clone,
-        EF: Fn() -> <Self::Edge as Edge>::E + Clone,
+        VI: IntoIterator<Item = (VertexId, Self::V)>,
+        EI: IntoIterator<Item = (EdgeId, Self::E)>,
+        FI: IntoIterator<Item = (TriId, Self::F)>,
+        TI: IntoIterator<Item = (TetId, Self::T)>,
+        FF: Fn() -> Self::F + Clone,
+        EF: Fn() -> Self::E + Clone,
         L: Lock,
     >(
         vertices: VI,
@@ -316,7 +297,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     /// Gets the value of the tetrahedron at a specific id.
     /// Returns None if not found.
-    fn tet<TI: TryInto<TetId>>(&self, id: TI) -> Option<&T!()> {
+    fn tet<TI: TryInto<TetId>>(&self, id: TI) -> Option<&Self::T> {
         id.try_into()
             .ok()
             .and_then(|id| self.tets_r::<Key>().get(&id))
@@ -325,7 +306,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     /// Gets the value of the tetrahedron at a specific id mutably.
     /// Returns None if not found.
-    fn tet_mut<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<&mut T!()> {
+    fn tet_mut<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<&mut Self::T> {
         id.try_into()
             .ok()
             .and_then(move |id| self.tets_r_mut::<Key>().get_mut(&id))
@@ -439,10 +420,10 @@ pub trait HasTets: HasTris<HigherF = B1> {
     fn add_tet<TI: TryInto<TetId>>(
         &mut self,
         vertices: TI,
-        value: T!(),
-        tri_value: impl Fn() -> F!(),
-        edge_value: impl Fn() -> E!() + Clone,
-    ) -> Option<T!()> {
+        value: Self::T,
+        tri_value: impl Fn() -> Self::F,
+        edge_value: impl Fn() -> Self::E + Clone,
+    ) -> Option<Self::T> {
         let id = vertices.try_into().ok().unwrap();
 
         for tri in &id.tris() {
@@ -511,11 +492,11 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same
     /// in any of the tetrahedrons.
-    fn extend_tets<TI: TryInto<TetId>, I: IntoIterator<Item = (TI, T!())>>(
+    fn extend_tets<TI: TryInto<TetId>, I: IntoIterator<Item = (TI, Self::T)>>(
         &mut self,
         iter: I,
-        tri_value: impl Fn() -> F!() + Clone,
-        edge_value: impl Fn() -> E!() + Clone,
+        tri_value: impl Fn() -> Self::F + Clone,
+        edge_value: impl Fn() -> Self::E + Clone,
     ) {
         iter.into_iter().for_each(|(id, value)| {
             self.add_tet(id, value, tri_value.clone(), edge_value.clone());
@@ -526,7 +507,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// or None if there was nothing there.
     /// Removes the edges and tris that are part of the tetrahedron if they are part of no other tetrahedrons
     /// and the tetrahedron to be removed exists.
-    fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()> {
+    fn remove_tet<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<Self::T> {
         let id = id.try_into().ok()?;
 
         if let Some(value) = self.remove_tet_keep_tris(id) {
@@ -545,7 +526,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// Removes an tetrahedron from the mesh and returns the value that was there,
     /// or None if there was nothing there.
     /// Keeps the triangles that are part of the tetrahedron.
-    fn remove_tet_keep_tris<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<T!()> {
+    fn remove_tet_keep_tris<TI: TryInto<TetId>>(&mut self, id: TI) -> Option<Self::T> {
         let id = id.try_into().ok()?;
 
         if self.tet(id).is_some() {
@@ -603,7 +584,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Keeps only the tetrahedrons that satisfy a predicate
-    fn retain_tets<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_tets<P: FnMut(TetId, &Self::T) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .tets()
             .filter(|(id, f)| !predicate(**id, *f))
@@ -613,7 +594,7 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Keeps only the tetrahedrons that satisfy a predicate
-    fn retain_tets_keep_tris<P: FnMut(TetId, &T!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_tets_keep_tris<P: FnMut(TetId, &Self::T) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .tets()
             .filter(|(id, f)| !predicate(**id, *f))

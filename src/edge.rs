@@ -96,12 +96,6 @@ pub type VertexEdgesOut<'a, M> =
 pub type VertexEdgesIn<'a, M> =
     MapWith<VertexId, EdgeId, VertexSources<'a, M>, fn(VertexId, VertexId) -> EdgeId>;
 
-macro_rules! E {
-    () => {
-        <Self::Edge as Edge>::E
-    };
-}
-
 /// A link. Too lazy to refactor this into an internal module
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
@@ -164,8 +158,8 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     #[doc(hidden)]
     fn from_ve_r<
-        VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
-        EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
+        VI: IntoIterator<Item = (VertexId, Self::V)>,
+        EI: IntoIterator<Item = (EdgeId, Self::E)>,
         L: Lock,
     >(vertices: VI, edges: EI) -> Self;
 
@@ -210,7 +204,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     /// Gets the value of the edge at a specific id.
     /// Returns None if not found.
-    fn edge<EI: TryInto<EdgeId>>(&self, id: EI) -> Option<&E!()> {
+    fn edge<EI: TryInto<EdgeId>>(&self, id: EI) -> Option<&Self::E> {
         id.try_into()
             .ok()
             .and_then(|id| self.edges_r::<Key>().get(&id))
@@ -219,7 +213,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     /// Gets the value of the edge at a specific id mutably.
     /// Returns None if not found.
-    fn edge_mut<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<&mut E!()> {
+    fn edge_mut<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<&mut Self::E> {
         id.try_into()
             .ok()
             .and_then(move |id| self.edges_r_mut::<Key>().get_mut(&id))
@@ -330,7 +324,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     ///
     /// # Panics
     /// Panics if either vertex doesn't exist or if the vertices are the same
-    fn add_edge<EI: TryInto<EdgeId>>(&mut self, vertices: EI, value: E!()) -> Option<E!()> {
+    fn add_edge<EI: TryInto<EdgeId>>(&mut self, vertices: EI, value: Self::E) -> Option<Self::E> {
         let id = vertices.try_into().ok().unwrap();
 
         // Can't use entry().or_insert() because that would cause a
@@ -413,7 +407,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     /// # Panics
     /// Panics if either vertex doesn't exist or if the vertices are the same
     /// in any of the edges.
-    fn extend_edges<EI: TryInto<EdgeId>, I: IntoIterator<Item = (EI, E!())>>(&mut self, iter: I) {
+    fn extend_edges<EI: TryInto<EdgeId>, I: IntoIterator<Item = (EI, Self::E)>>(&mut self, iter: I) {
         iter.into_iter().for_each(|(id, value)| {
             self.add_edge(id, value);
         })
@@ -421,7 +415,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     /// Removes an edge from the mesh and returns the value that was there,
     /// or None if there was nothing there
-    fn remove_edge<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<E!()> {
+    fn remove_edge<EI: TryInto<EdgeId>>(&mut self, id: EI) -> Option<Self::E> {
         let id = id.try_into().ok()?;
 
         if self.edge(id).is_some() {
@@ -492,7 +486,7 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     }
 
     /// Keeps only the edges that satisfy a predicate
-    fn retain_edges<P: FnMut(EdgeId, &E!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_edges<P: FnMut(EdgeId, &Self::E) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .edges()
             .filter(|(id, e)| !predicate(**id, *e))

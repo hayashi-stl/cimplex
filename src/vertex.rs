@@ -108,12 +108,6 @@ pub type VerticesMut<'a, VT> = Map<
     for<'b> fn((&'b VertexId, &'b mut VT)) -> (&'b VertexId, &'b mut <VT as Vertex>::V),
 >;
 
-macro_rules! V {
-    () => {
-        <Self::Vertex as Vertex>::V
-    };
-}
-
 /// Vertex attributes
 pub trait Vertex {
     type V;
@@ -151,7 +145,7 @@ pub trait HasVertices {
     type HigherV: Bit;
 
     #[doc(hidden)]
-    fn from_v_r<VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>, L: Lock>(vertices: VI) -> Self;
+    fn from_v_r<VI: IntoIterator<Item = (VertexId, Self::V)>, L: Lock>(vertices: VI) -> Self;
 
     #[doc(hidden)]
     fn into_v_r<L: Lock>(self) -> IntoVertices<Self::Vertex>;
@@ -200,18 +194,18 @@ pub trait HasVertices {
 
     /// Gets the value of the vertex at a specific id.
     /// Returns None if not found.
-    fn vertex(&self, id: VertexId) -> Option<&V!()> {
+    fn vertex(&self, id: VertexId) -> Option<&Self::V> {
         self.vertices_r::<Key>().get(id).map(|v| v.value::<Key>())
     }
 
     /// Gets the value of the vertex at a specific id mutably.
     /// Returns None if not found.
-    fn vertex_mut(&mut self, id: VertexId) -> Option<&mut V!()> {
+    fn vertex_mut(&mut self, id: VertexId) -> Option<&mut Self::V> {
         self.vertices_r_mut::<Key>().get_mut(id).map(|v| v.value_mut::<Key>())
     }
 
     /// Adds a vertex to the mesh and returns the id.
-    fn add_vertex(&mut self, value: V!()) -> VertexId {
+    fn add_vertex(&mut self, value: Self::V) -> VertexId {
         let id = VertexId(self.next_vertex_id::<Key>());
         *self.next_vertex_id_mut::<Key>() += 1;
         debug_assert!(self
@@ -223,7 +217,7 @@ pub trait HasVertices {
 
     /// Adds a vertex with a specific id.
     /// Returns the value that was previously there, if any
-    fn add_vertex_with_id(&mut self, id: VertexId, value: V!()) -> Option<V!()> {
+    fn add_vertex_with_id(&mut self, id: VertexId, value: Self::V) -> Option<Self::V> {
         *self.next_vertex_id_mut::<Key>() = (id.0 + 1).max(self.next_vertex_id::<Key>());
         self.vertices_r_mut::<Key>().insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value))
             .map(|vertex| vertex.to_value::<Key>())
@@ -231,14 +225,14 @@ pub trait HasVertices {
 
     /// Extends the vertex list with an iterator and returns a `Vec`
     /// of the vertex ids that are created in order.
-    fn extend_vertices<I: IntoIterator<Item = V!()>>(&mut self, iter: I) -> Vec<VertexId> {
+    fn extend_vertices<I: IntoIterator<Item = Self::V>>(&mut self, iter: I) -> Vec<VertexId> {
         iter.into_iter()
             .map(|value| self.add_vertex(value))
             .collect()
     }
 
     /// Extends the vertex list with an iterator over (id, value) pairs
-    fn extend_vertices_with_ids<I: IntoIterator<Item = (VertexId, V!())>>(&mut self, iter: I) {
+    fn extend_vertices_with_ids<I: IntoIterator<Item = (VertexId, Self::V)>>(&mut self, iter: I) {
         iter.into_iter()
             .for_each(|(id, value)| {
                 self.add_vertex_with_id(id, value);
@@ -247,7 +241,7 @@ pub trait HasVertices {
 
     /// Removes a vertex from the mesh.
     /// Returns the value of the vertex that was there or None if none was there,
-    fn remove_vertex(&mut self, id: VertexId) -> Option<V!()> {
+    fn remove_vertex(&mut self, id: VertexId) -> Option<Self::V> {
         if self.vertex(id).is_some() {
             self.remove_vertex_higher::<Key>(id);
         }
@@ -262,7 +256,7 @@ pub trait HasVertices {
     }
 
     /// Keeps only the vertices that satisfy a predicate
-    fn retain_vertices<P: FnMut(VertexId, &V!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_vertices<P: FnMut(VertexId, &Self::V) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .vertices()
             .filter(|(id, v)| !predicate(**id, *v))
@@ -291,7 +285,7 @@ where
 
     /// Adds a vertex with some position and the rest of the vertex value
     fn add_with_position(&mut self, position: HasPositionPoint<Self>, rest: HasPositionRest<Self>) -> VertexId {
-        self.add_vertex(<<Self::Vertex as Vertex>::V as Position>::with_position(position, rest))
+        self.add_vertex(<Self::V as Position>::with_position(position, rest))
     }
 
     /// Gets the bounding box of the mesh
@@ -327,7 +321,7 @@ where
         tet_value_fn: impl Fn() -> <<M as HasTets>::Tet as Tet>::T,
         tri_value_fn: impl Fn() -> <<M as HasTris>::Tri as Tri>::F + Clone,
         edge_value_fn: impl Fn() -> <<M as HasEdges>::Edge as Edge>::E + Clone,
-        v_rest_fn: impl Fn() -> <<Self::Vertex as Vertex>::V as Position>::Rest,
+        v_rest_fn: impl Fn() -> <Self::V as Position>::Rest,
     ) -> M where
         Self: Sized,
         M: HasTets<MwbT = B1> + HasVertices<V = Self::V>,

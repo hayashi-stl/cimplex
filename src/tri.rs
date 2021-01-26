@@ -11,12 +11,11 @@ use typenum::{Bit, B1};
 
 use crate::{edge::{IntoEdges, Edge, Link}, vertex::IntoVertices};
 use crate::iter::{IteratorExt, MapWith};
-use crate::vertex::HasVertices;
 use crate::{vertex::VertexId};
 use crate::{
     edge::{EdgeId, EdgeWalker, HasEdges, VertexEdgesOut},
     tet::{HasTets, TetWalker},
-    vertex::{Vertex, HasPosition, HasPositionDim, HasPositionPoint, Position},
+    vertex::{HasPosition, HasPositionDim, HasPositionPoint, Position},
 };
 use crate::private::{Lock, Key};
 
@@ -134,18 +133,6 @@ pub type EdgeTris<'a, M> =
 pub type VertexTris<'a, M> =
     MapWith<VertexId, TriId, VertexEdgeOpps<'a, M>, fn(VertexId, EdgeId) -> TriId>;
 
-macro_rules! E {
-    () => {
-        <Self::Edge as Edge>::E
-    };
-}
-
-macro_rules! F {
-    () => {
-        <Self::Tri as Tri>::F
-    };
-}
-
 /// Triangle attributes
 pub trait Tri {
     type F;
@@ -199,10 +186,10 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     #[doc(hidden)]
     fn from_vef_r<
-        VI: IntoIterator<Item = (VertexId, <Self::Vertex as Vertex>::V)>,
-        EI: IntoIterator<Item = (EdgeId, <Self::Edge as Edge>::E)>,
-        FI: IntoIterator<Item = (TriId, <Self::Tri as Tri>::F)>,
-        EF: Fn() -> <Self::Edge as Edge>::E + Clone,
+        VI: IntoIterator<Item = (VertexId, Self::V)>,
+        EI: IntoIterator<Item = (EdgeId, Self::E)>,
+        FI: IntoIterator<Item = (TriId, Self::F)>,
+        EF: Fn() -> Self::E + Clone,
         L: Lock,
     >(
         vertices: VI,
@@ -252,7 +239,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     /// Gets the value of the triangle at a specific id.
     /// Returns None if not found.
-    fn tri<FI: TryInto<TriId>>(&self, id: FI) -> Option<&F!()> {
+    fn tri<FI: TryInto<TriId>>(&self, id: FI) -> Option<&Self::F> {
         id.try_into()
             .ok()
             .and_then(|id| self.tris_r::<Key>().get(&id))
@@ -261,7 +248,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     /// Gets the value of the triangle at a specific id mutably.
     /// Returns None if not found.
-    fn tri_mut<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<&mut F!()> {
+    fn tri_mut<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<&mut Self::F> {
         id.try_into()
             .ok()
             .and_then(move |id| self.tris_r_mut::<Key>().get_mut(&id))
@@ -355,9 +342,9 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     fn add_tri<FI: TryInto<TriId>>(
         &mut self,
         vertices: FI,
-        value: F!(),
-        edge_value: impl Fn() -> E!(),
-    ) -> Option<F!()> {
+        value: Self::F,
+        edge_value: impl Fn() -> Self::E,
+    ) -> Option<Self::F> {
         let id = vertices.try_into().ok().unwrap();
 
         for edge in &id.edges() {
@@ -422,10 +409,10 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     /// # Panics
     /// Panics if any vertex doesn't exist or if any two vertices are the same
     /// in any of the triangles.
-    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, F!())>>(
+    fn extend_tris<FI: TryInto<TriId>, I: IntoIterator<Item = (FI, Self::F)>>(
         &mut self,
         iter: I,
-        edge_value: impl Fn() -> E!() + Clone,
+        edge_value: impl Fn() -> Self::E + Clone,
     ) {
         iter.into_iter().for_each(|(id, value)| {
             self.add_tri(id, value, edge_value.clone());
@@ -436,7 +423,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     /// or None if there was nothing there.
     /// Removes the edges that are part of the triangle if they are part of no other triangles
     /// and the triangle to be removed exists.
-    fn remove_tri<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
+    fn remove_tri<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<Self::F> {
         let id = id.try_into().ok()?;
 
         if let Some(value) = self.remove_tri_keep_edges(id) {
@@ -455,7 +442,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     /// Removes an triangle from the mesh and returns the value that was there,
     /// or None if there was nothing there.
     /// Keeps the edges that are part of the triangle.
-    fn remove_tri_keep_edges<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<F!()> {
+    fn remove_tri_keep_edges<FI: TryInto<TriId>>(&mut self, id: FI) -> Option<Self::F> {
         let id = id.try_into().ok()?;
 
         if self.tri(id).is_some() {
@@ -514,7 +501,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Keeps only the triangles that satisfy a predicate
-    fn retain_tris<P: FnMut(TriId, &F!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_tris<P: FnMut(TriId, &Self::F) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .tris()
             .filter(|(id, f)| !predicate(**id, *f))
@@ -524,7 +511,7 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     }
 
     /// Keeps only the triangles that satisfy a predicate
-    fn retain_tris_keep_edges<P: FnMut(TriId, &F!()) -> bool>(&mut self, mut predicate: P) {
+    fn retain_tris_keep_edges<P: FnMut(TriId, &Self::F) -> bool>(&mut self, mut predicate: P) {
         let to_remove = self
             .tris()
             .filter(|(id, f)| !predicate(**id, *f))
