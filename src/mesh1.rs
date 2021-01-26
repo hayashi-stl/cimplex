@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use typenum::{U2, U3, B0, B1};
 
-use crate::vertex::VertexId;
+use crate::{ComboMesh0, vertex::VertexId};
 use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
 use crate::private::Lock;
@@ -47,6 +47,10 @@ impl<V, E> HasVertices for ComboMesh1<V, E> {
 
 impl<V, E> HasEdges for ComboMesh1<V, E> {
     crate::impl_has_edges!(Edge<E>, Mwb = B0, Higher = B0);
+    
+    type WithoutEdges = ComboMesh0<V>;
+    type WithMwbE = MwbComboMesh1<V, E>;
+    type WithoutMwbE = ComboMesh1<V, E>;
 
     fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
 
@@ -108,6 +112,10 @@ impl<V, E> HasVertices for MwbComboMesh1<V, E> {
 
 impl<V, E> HasEdges for MwbComboMesh1<V, E> {
     crate::impl_has_edges!(MwbEdge<E>, Mwb = B1, Higher = B0);
+    
+    type WithoutEdges = ComboMesh0<V>;
+    type WithMwbE = MwbComboMesh1<V, E>;
+    type WithoutMwbE = ComboMesh1<V, E>;
 
     fn remove_edge_higher<L: Lock>(&mut self, _: EdgeId) {}
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
-use typenum::{Bit, B1};
+use typenum::{Bit, B1, B0};
 
 use crate::{iter::{IteratorExt, MapWith}, tri::{HasTris, TriWalker}, vertex::{HasPosition, IntoVertices}};
 //use crate::tri::{HasTris, TriWalker};
@@ -155,6 +155,9 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     type E;
     type MwbE: Bit;
     type HigherE: Bit;
+    type WithoutEdges: HasVertices<V = Self::V>;
+    type WithMwbE: HasVertices<V = Self::V> + HasEdges<E = Self::E, MwbE = B1>;
+    type WithoutMwbE: HasVertices<V = Self::V> + HasEdges<E = Self::E, MwbE = B0>;
 
     #[doc(hidden)]
     fn from_ve_r<

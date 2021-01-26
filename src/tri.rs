@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
-use typenum::{Bit, B1};
+use typenum::{Bit, B1, B0};
 
-use crate::{edge::{IntoEdges, Edge, Link}, vertex::IntoVertices};
+use crate::{edge::{IntoEdges, Edge, Link}, vertex::{HasVertices, IntoVertices}};
 use crate::iter::{IteratorExt, MapWith};
 use crate::{vertex::VertexId};
 use crate::{
@@ -183,6 +183,11 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     type F;
     type MwbF: Bit;
     type HigherF: Bit;
+    type WithoutTris: HasVertices<V = Self::V> + HasEdges<E = Self::E>;
+    // Can't upgrade without GATs
+    //type WithTets: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F> + HasTets;
+    type WithMwbF: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F, MwbF = B1>;
+    type WithoutMwbF: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F, MwbF = B0>;
 
     #[doc(hidden)]
     fn from_vef_r<

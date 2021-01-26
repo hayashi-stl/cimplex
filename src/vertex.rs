@@ -138,6 +138,12 @@ pub trait Vertex {
     fn target_mut<L: Lock>(&mut self) -> &mut VertexId where Self: Vertex<Higher = B1>;
 }
 
+/// Allows upgrading to a simplicial 1-complex.
+pub trait WithEdges<E> {
+    type V;
+    type WithEdges: HasVertices<V = Self::V> + HasEdges<E = E>;
+}
+
 /// For simplicial complexes that can have vertices, that is, all of them
 pub trait HasVertices {
     type Vertex: Vertex<V = Self::V, Higher = Self::HigherV>;

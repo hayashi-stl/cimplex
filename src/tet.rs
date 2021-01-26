@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
-use typenum::{Bit, B1};
+use typenum::{Bit, B1, B0};
 
-use crate::{edge::{EdgeId, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::IntoVertices};
+use crate::{edge::{EdgeId, HasEdges, IntoEdges, VertexEdgesOut}, tri::IntoTris, vertex::{HasVertices, IntoVertices}};
 use crate::iter::{IteratorExt, MapWith};
 use crate::tri::{
     Tri,
@@ -237,6 +237,9 @@ pub trait HasTets: HasTris<HigherF = B1> {
     type Tet: Tet<T = Self::T, Mwb = Self::MwbT>;
     type T;
     type MwbT: Bit;
+    type WithoutTets: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F>;
+    type WithMwbT: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F> + HasTets<T = Self::T, MwbT = B1>;
+    type WithoutMwbT: HasVertices<V = Self::V> + HasEdges<E = Self::E> + HasTris<F = Self::F> + HasTets<T = Self::T, MwbT = B0>;
 
     #[doc(hidden)]
     fn from_veft_r<
