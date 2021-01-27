@@ -1,6 +1,7 @@
 //! Traits and structs related to tetrahedrons
 
 use fnv::FnvHashMap;
+use idmap::OrderedIdMap;
 use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -71,13 +72,17 @@ impl TetId {
         v
     }
 
-    pub(crate) fn invalid() -> Self {
-        Self([VertexId(0); 4])
-    }
-
     /// Skips the vertex inequality check but does canonicalization
     pub(crate) fn from_valid(v: [VertexId; 4]) -> Self {
         Self(Self::canonicalize(v))
+    }
+
+    /// Canonicalizes this tet id into an undirected version.
+    pub fn undirected(mut self) -> TetId {
+        if self.0[2] > self.0[3] {
+            self.0.swap(2, 3);
+        }
+        self
     }
 
     /// Gets the vertices that this tet id is made of
@@ -348,6 +353,12 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     #[doc(hidden)]
     fn default_t_r<L: Lock>(&self) -> fn() -> Self::T;
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_tets<L: Lock>(&self, _data: &mut obj::ObjData, _v_inv: &FnvHashMap<VertexId, usize>) {
+        panic!("Can't export tet mesh as obj");
+    }
 
     /// Gets the default value of a tetrahedron.
     fn default_tet(&self) -> Self::T {
@@ -757,6 +768,36 @@ pub trait HasTets: HasTris<HigherF = B1> {
             EdgeId([tet.0[0], tet.0[1]]),
             EdgeId([tet.0[2], tet.0[3]]),
         )
+    }
+
+    /// Converts this into a triangle mesh where each tetrahedron
+    /// turns into 4 separate vertices and 4 triangles with those vertices.
+    fn to_separate_tets(&self) -> Self::WithoutTets
+    where
+        Self::V: Clone,
+        Self::E: Clone,
+        Self::F: Clone,
+        Self::WithoutTets: HasTris<HigherF = B0>
+    {
+        let mut mesh = <Self::WithoutTets as HasTris>::from_vef_r::<_, _, _, Key>(vec![], vec![], vec![],
+            self.default_v_r::<Key>(), self.default_e_r::<Key>(), self.default_f_r::<Key>());
+
+        for tet in self.tet_ids() {
+            let v_map = tet.vertices().iter().map(|v_id| {
+                (*v_id, mesh.add_vertex(self.vertex(*v_id).unwrap().clone()))
+            }).collect::<OrderedIdMap<_, _>>();
+
+            for edge in &tet.edges() {
+                mesh.add_edge(EdgeId([v_map[edge.0[0]], v_map[edge.0[1]]]), self.edge(*edge).unwrap().clone());
+            }
+
+            for tri in &tet.tris() {
+                mesh.add_tri(TriId::from_valid([v_map[tri.0[0]], v_map[tri.0[1]], v_map[tri.0[2]]]),
+                    self.tri(*tri).unwrap().clone());
+            }
+        }
+
+        mesh
     }
 }
 

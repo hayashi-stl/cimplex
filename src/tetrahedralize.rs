@@ -354,4 +354,14 @@ mod tests {
             (TetId::from_valid([ids[2], ids[4], ids[1], ids[5]]), ()),
         ]);
     }
+
+    //#[test]
+    //fn test_export() {
+    //    let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
+    //    mesh.extend_vertices((0..3).flat_map(|x| (0..3).flat_map(move |y| (0..3).map(move |z| 
+    //        Point3::new(x as f64, y as f64, z as f64)))));
+
+    //    let result = mesh.delaunay_tets(|| (), || (), || ());
+    //    result.to_separate_tets().write_obj("assets/grid.obj").unwrap();
+    //}
 }

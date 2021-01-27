@@ -1,6 +1,6 @@
 //! Traits and structs related to edges
 
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use nalgebra::allocator::Allocator;
 use nalgebra::DefaultAllocator;
 #[cfg(feature = "serde")]
@@ -42,6 +42,14 @@ impl EdgeId {
     /// Gets the vertices that this edge id is made of
     pub fn vertices(self) -> [VertexId; 2] {
         self.0
+    }
+
+    /// Canonicalizes this edge id into an undirected version.
+    pub fn undirected(mut self) -> EdgeId {
+        if self.0[0] > self.0[1] {
+            self.0.swap(0, 1);
+        }
+        self
     }
 
     /// Gets the source vertex.
@@ -227,6 +235,26 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     #[doc(hidden)]
     fn default_e_r<L: Lock>(&self) -> fn() -> Self::E;
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_edges<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>) {
+        // If there are triangles, only isolated edges should be added separately.
+        if !<Self::HigherE as Bit>::BOOL {
+            data.objects[0].groups[0].polys.extend(
+                self.edge_ids().map(|edge| edge.undirected()).collect::<FnvHashSet<_>>().into_iter().map(|edge| obj::SimplePolygon(vec![
+                    obj::IndexTuple(v_inv[&edge.0[0]], None, None),
+                    obj::IndexTuple(v_inv[&edge.0[1]], None, None),
+                ]))
+            )
+        }
+
+        self.obj_with_edges_higher::<Key>(data, v_inv);
+    }
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_edges_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
 
     /// Gets the default value of an edge.
     fn default_edge(&self) -> Self::E {
@@ -1071,7 +1099,7 @@ macro_rules! impl_edge_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_edges {
-    ($edge:ident<$e:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ty) => {
+    ($edge:ident<$e:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ident) => {
         type Edge = $edge<$e>;
         type E = $e;
         type MwbE = $mwb;
@@ -1134,6 +1162,18 @@ macro_rules! impl_has_edges {
 
         fn default_e_r<L: crate::private::Lock>(&self) -> fn() -> Self::E {
             self.default_e
+        }
+
+        crate::if_b0! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_edges_higher<L: crate::private::Lock>(&self, _: &mut obj::ObjData, _: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {}
+        }
+
+        crate::if_b1! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_edges_higher<L: crate::private::Lock>(&self, data: &mut obj::ObjData, v_inv: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {
+                self.obj_with_tris::<crate::private::Key>(data, v_inv);
+            }
         }
     };
 }

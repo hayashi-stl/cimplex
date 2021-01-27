@@ -1,13 +1,14 @@
 //! Traits and structs related to vertices
 
 use alga::general::{JoinSemilattice, MeetSemilattice};
+use fnv::FnvHashMap;
 use idmap::{table::DenseEntryTable, OrderedIdMap};
 use nalgebra::allocator::Allocator;
 use nalgebra::dimension::U3;
 use nalgebra::{DefaultAllocator, DimName, Point};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::iter::Map;
+use std::{iter::Map, path::Path};
 use typenum::{Bit, B0, B1};
 
 use crate::private::{Key, Lock};
@@ -193,6 +194,10 @@ pub trait HasVertices {
 
     #[doc(hidden)]
     fn default_v_r<L: Lock>(&self) -> fn() -> Self::V;
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_vertices_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
 
     /// Gets the default value of a vertex.
     fn default_vertex(&self) -> Self::V {
@@ -409,6 +414,51 @@ where
 
         crate::tetrahedralize::delaunay_tets(mesh)
     }
+
+    /// Converts this mesh into OBJ data.
+    /// Edges lose their directedness.
+    ///
+    /// # Panics
+    /// Panics if this is a tet mesh, because those and OBJ don't mix.
+    #[cfg(feature = "obj")]
+    fn to_obj(&self) -> obj::ObjData {
+        let vertices = self.vertex_ids().copied().collect::<Vec<_>>();
+        let vertices_inv = vertices.iter().enumerate().map(|(i, v)| (*v, i)).collect::<FnvHashMap<_, _>>();
+
+        let mut data = obj::ObjData {
+            position: vertices.into_iter().map(|v| {
+                    let point = self.position(v);
+                    [point.x as f32, point.y as f32, point.z as f32]
+                }).collect::<Vec<_>>(),
+
+            texture: vec![],
+            normal: vec![],
+
+            objects: vec![obj::Object {
+                name: "Mesh".to_owned(),
+                groups: vec![obj::Group {
+                    name: "Group".to_owned(),
+                    index: 0,
+                    material: None,
+                    polys: vec![],
+                }]
+            }],
+
+            material_libs: vec![]
+        };
+
+        self.obj_with_vertices_higher::<Key>(&mut data, &vertices_inv);
+        data
+    }
+
+    /// Writes this mesh as an OBJ file.
+    ///
+    /// # Panics
+    /// Panics if this is a tet mesh, because those and OBJ don't mix.
+    #[cfg(feature = "obj")]
+    fn write_obj<P: AsRef<Path>>(&self, path: P) -> Result<(), obj::ObjError> {
+        self.to_obj().save(path)
+    }
 }
 
 impl<M> HasPosition3D for M
@@ -552,7 +602,7 @@ macro_rules! impl_vertex_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_vertices {
-    ($vertex:ident<$v:ident> $($z:ident)*, Higher = $higher:ty) => {
+    ($vertex:ident<$v:ident> $($z:ident)*, Higher = $higher:ident) => {
         type Vertex = $vertex<$v>;
         type V = $v;
         type HigherV = $higher;
@@ -609,6 +659,18 @@ macro_rules! impl_has_vertices {
 
         fn default_v_r<L: crate::private::Lock>(&self) -> fn() -> Self::V {
             self.default_v
+        }
+
+        crate::if_b0! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_vertices_higher<L: crate::private::Lock>(&self, _: &mut obj::ObjData, _: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {}
+        }
+
+        crate::if_b1! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_vertices_higher<L: crate::private::Lock>(&self, data: &mut obj::ObjData, v_inv: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {
+                self.obj_with_edges::<crate::private::Key>(data, v_inv);
+            }
         }
     };
 }

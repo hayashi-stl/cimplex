@@ -1,6 +1,6 @@
 //! Traits and structs related to triangles
 
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,14 @@ impl TriId {
     /// Conversion without checking for inequality of the vertices
     pub(crate) fn from_valid(v: [VertexId; 3]) -> Self {
         Self(Self::canonicalize(v))
+    }
+
+    /// Canonicalizes this tri id into an undirected version.
+    pub fn undirected(mut self) -> TriId {
+        if self.0[1] > self.0[2] {
+            self.0.swap(1, 2);
+        }
+        self
     }
 
     /// Gets the vertices that this tri id is made of
@@ -262,6 +270,38 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     #[doc(hidden)]
     fn default_f_r<L: Lock>(&self) -> fn() -> Self::F;
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_tris<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>) {
+        // Triangles
+        data.objects[0].groups[0].polys.extend(
+            self.tri_ids().map(|tri| {
+                obj::SimplePolygon(vec![
+                    obj::IndexTuple(v_inv[&tri.0[0]], None, None),
+                    obj::IndexTuple(v_inv[&tri.0[1]], None, None),
+                    obj::IndexTuple(v_inv[&tri.0[2]], None, None),
+                ])
+            })
+        );
+
+        // Isolated edges
+        data.objects[0].groups[0].polys.extend(
+            self.edge_ids().flat_map(|e| self.edge_vertex_opps(*e).next().map(|_| e.undirected()))
+                .collect::<FnvHashSet<_>>().into_iter().map(|edge| {
+                    obj::SimplePolygon(vec![
+                        obj::IndexTuple(v_inv[&edge.0[0]], None, None),
+                        obj::IndexTuple(v_inv[&edge.0[1]], None, None),
+                    ])
+                })
+        );
+
+        self.obj_with_tris_higher::<Key>(data, v_inv);
+    }
+
+    #[doc(hidden)]
+    #[cfg(feature = "obj")]
+    fn obj_with_tris_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
 
     /// Gets the default value of a triangle.
     fn default_tri(&self) -> Self::F {
@@ -1084,7 +1124,7 @@ macro_rules! impl_tri_higher {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_has_tris {
-    ($tri:ident<$f:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ty) => {
+    ($tri:ident<$f:ident> $($z:ident)*, Mwb = $mwb:ty, Higher = $higher:ident) => {
         type Tri = $tri<$f>;
         type F = $f;
         type MwbF = $mwb;
@@ -1156,6 +1196,18 @@ macro_rules! impl_has_tris {
 
         fn default_f_r<L: crate::private::Lock>(&self) -> fn() -> Self::F {
             self.default_f
+        }
+
+        crate::if_b0! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_tris_higher<L: crate::private::Lock>(&self, _: &mut obj::ObjData, _: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {}
+        }
+
+        crate::if_b1! { $higher =>
+            #[cfg(feature = "obj")]
+            fn obj_with_tris_higher<L: crate::private::Lock>(&self, data: &mut obj::ObjData, v_inv: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {
+                self.obj_with_tets::<crate::private::Key>(data, v_inv);
+            }
         }
     };
 }

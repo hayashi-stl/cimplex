@@ -280,7 +280,6 @@ pub(crate) mod internal {
     /// A triangle of an tri mesh
     #[derive(Clone, Debug)]
     #[doc(hidden)]
-    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct MwbTri<F> {
         value: F,
     }

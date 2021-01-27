@@ -7,6 +7,7 @@ pub mod tet;
 pub mod tetrahedralize;
 pub mod tri;
 pub mod vertex;
+pub mod io;
 
 mod iter;
 mod private;
@@ -36,4 +37,24 @@ macro_rules! impl_integer_id {
             }
         }
     };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! if_b0 {
+    (B0 => $($with:tt)*) => {
+        $($with)*
+    };
+
+    ($other:ident => $($with:tt)*) => {}
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! if_b1 {
+    (B1 => $($with:tt)*) => {
+        $($with)*
+    };
+
+    ($other:ident => $($with:tt)*) => {}
 }

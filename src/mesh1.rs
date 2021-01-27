@@ -103,7 +103,6 @@ pub type Mesh13<V, E> = Mesh1<V, E, U3>;
 /// A combinatorial simplicial 1-complex with the mwb property,
 /// which forces every vertex to be a source of at most 1 edge and a target of at most 1 edge.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MwbComboMesh1<V, E> {
     vertices: OrderedIdMap<VertexId, HigherVertex<V>>,
     edges: FnvHashMap<EdgeId, MwbEdge<E>>,
