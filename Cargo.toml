@@ -6,6 +6,13 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "cimplex"
+bench = false
+
+[profile.release]
+debug = true
+
 [dependencies]
 idmap = "0.2.19"
 nalgebra = { version = "0.24.0", features = ["alga"] }
@@ -16,3 +23,13 @@ simplicity = "0.3.0"
 float-ord = "0.2.0"
 serde = { version = "1.0.117", optional = true, features = ["derive"] }
 obj = { version = "0.10.2", optional = true }
+
+[dev-dependencies]
+rand = "0.8"
+rand_pcg = "0.3.0"
+rand_distr = "0.4.0"
+criterion = "0.3"
+
+[[bench]]
+name = "delaunay_tets"
+harness = false
