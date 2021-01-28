@@ -28,6 +28,7 @@ where
         let tri = tet.opp_tri(ghost);
         sim::orient_3d(mesh, index_fn, tri.0[0], tri.0[1], tri.0[2], m)
     } else {
+        println!("In-sphere: {}, {}, {}, {}, {}", tet.0[0].0, tet.0[1].0, tet.0[2].0, tet.0[3].0, m.0);
         sim::in_sphere(mesh, index_fn, tet.0[0], tet.0[1], tet.0[2], tet.0[3], m)
     }
 }
@@ -52,11 +53,14 @@ where
     // The new vertex is in the circumsphere of some tet on that vertex.
     // If not, there's a floating-point error and we search further.
 
+    println!();
+    println!("New vertex: {:?} @ {:?}", new_vertex, mesh.position(new_vertex));
     iter::bfs(
         mesh.vertex_tets(vertex),
         |tet| mesh.adjacent_tets(*tet),
         |_| true,
     )
+    .inspect(|tet| println!("Tet bfs'd: {:?}", tet))
     .find(|tet| in_sphere_with_ghosts(mesh, *tet, new_vertex, ghost))
     .unwrap()
 }
@@ -355,6 +359,21 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn test_delaunay_tets_same_position() {
+        // Simulation of simplicity is used. This should be perfectly fine.
+
+        let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
+        mesh.extend_vertices(vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+        ]);
+        mesh.delaunay_tets(|| (), || (), || ());
+    }
+
     //#[test]
     //fn test_export() {
     //    let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
@@ -364,4 +383,13 @@ mod tests {
     //    let result = mesh.delaunay_tets(|| (), || (), || ());
     //    result.to_separate_tets().write_obj("assets/grid.obj").unwrap();
     //}
+
+    #[test]
+    fn test_import() {
+        use crate::mesh2::ComboMesh2;
+        let mesh = ComboMesh2::read_obj("assets/input.obj", || Point3::origin(), || (), || ()).unwrap()
+            .delaunay_tets(|| (), || (), || ());
+
+        mesh.to_separate_tets().write_obj("assets/output.obj").unwrap();
+    }
 }

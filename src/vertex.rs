@@ -260,10 +260,9 @@ pub trait HasVertices {
     fn add_vertex(&mut self, value: Self::V) -> VertexId {
         let id = VertexId(self.next_vertex_id::<Key>());
         *self.next_vertex_id_mut::<Key>() += 1;
-        debug_assert!(self
+        self
             .vertices_r_mut::<Key>()
-            .insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value))
-            .is_none());
+            .insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value));
         id
     }
 

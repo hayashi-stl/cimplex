@@ -2,7 +2,8 @@ use edge::HasEdges;
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
 use std::fmt::Debug;
-use typenum::{B0, B1, U2, U3};
+use typenum::{B0, B1};
+use nalgebra::dimension::{U2, U3};
 
 use crate::{ComboMesh2, ComboMesh3, private::Lock};
 use crate::{edge, vertex::HasVertices, PtN};

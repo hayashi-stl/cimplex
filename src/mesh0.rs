@@ -1,6 +1,7 @@
 use idmap::OrderedIdMap;
 use std::iter::{Extend, FromIterator, IntoIterator, Map};
-use typenum::{B0, U2, U3};
+use typenum::B0;
+use nalgebra::dimension::{U2, U3};
 
 use crate::{ComboMesh1, ComboMesh2, ComboMesh3, private::{Key, Lock}};
 use crate::vertex::{HasVertices, IdType, Vertex as VertexIntr, VertexId};

@@ -1,9 +1,11 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
-use std::fmt::Debug;
-use typenum::{B0, B1, U2, U3};
+use nalgebra::Point3;
+use std::{fmt::Debug, path::Path};
+use typenum::{B0, B1};
+use nalgebra::dimension::{U2, U3};
 
-use crate::{ComboMesh3, mesh1::internal::HigherVertex};
+use crate::{ComboMesh3, mesh1::internal::HigherVertex, vertex::{HasPosition3D, Position}};
 use crate::private::Lock;
 use crate::tri::{HasTris, TriId};
 use crate::vertex::{HasVertices, IdType, VertexId};
@@ -121,6 +123,49 @@ impl<V, E, F> ComboMesh2<V, E, F> {
             default_e: edge,
             default_f: tri,
         }
+    }
+
+    /// Loads this from OBJ data.
+    /// Will remove from this class once PLC gets added.
+    #[cfg(feature = "obj")]
+    pub fn from_obj(data: obj::ObjData, default_vertex: fn() -> V, default_edge: fn() -> E, default_tri: fn() -> F) -> Self
+    where
+        Self: HasPosition3D + HasVertices<V = V, HigherV = B1>,
+        V: Position<Dim = U3>,
+    {
+        let mut mesh = Self::with_defaults(default_vertex, default_edge, default_tri);
+
+        let ids = mesh.extend_vertices(data.position.into_iter().map(|[x, y, z]|
+            <V as Position>::with_position(default_vertex(), Point3::new(x as f64, y as f64, z as f64))
+        ));
+
+        for object in data.objects {
+            for group in object.groups {
+                for poly in group.polys {
+                    if poly.0.len() >= 3 {
+                        mesh.add_tri([ids[poly.0[0].0], ids[poly.0[1].0], ids[poly.0[2].0]], default_tri());
+                    } else if poly.0.len() == 2 {
+                        mesh.add_edge([ids[poly.0[0].0], ids[poly.0[1].0]], default_edge());
+                        mesh.add_edge([ids[poly.0[1].0], ids[poly.0[0].0]], default_edge());
+                    }
+                }
+            }
+        }
+
+        mesh
+    }
+
+    /// Loads this from an OBJ file.
+    /// Will remove from this class once PLC gets added.
+    #[cfg(feature = "obj")]
+    pub fn read_obj<P: AsRef<Path>>(path: P, default_vertex: fn() -> V, default_edge: fn() -> E, default_tri: fn() -> F) 
+        -> Result<Self, obj::ObjError>
+    where
+        Self: HasPosition3D + HasVertices<V = V, HigherV = B1>,
+        V: Position<Dim = U3>,
+    {
+        obj::Obj::load(path).map(|data|
+            Self::from_obj(data.data, default_vertex, default_edge, default_tri))
     }
 }
 
