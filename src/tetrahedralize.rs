@@ -1,4 +1,4 @@
-use crate::iter;
+use crate::{edge::HasEdges, iter, tri::{HasTris, TriId}};
 use crate::{
     tet::{HasTets, TetId},
     vertex::{HasPosition3D, Position, VertexId},
@@ -9,7 +9,7 @@ use nalgebra::{dimension::U3, Point1, Vector3};
 use simplicity as sim;
 use typenum::B1;
 
-fn index_fn<M>(mesh: &M, i: VertexId) -> Vector3<f64>
+pub(crate) fn index_fn<M>(mesh: &M, i: VertexId) -> Vector3<f64>
 where
     M: HasPosition3D,
     M::V: Position<Dim = U3>,
@@ -30,6 +30,21 @@ where
     } else {
         sim::in_sphere(mesh, index_fn, tet.0[0], tet.0[1], tet.0[2], tet.0[3], m)
     }
+}
+
+/// Whether some tri intersects some edge, both given
+/// by vertex ids in case they don't exist.
+pub(crate) 
+fn tri_intersects_edge<M>(mesh: &M, v1: VertexId, v2: VertexId, v3: VertexId, vp: VertexId, vn: VertexId) -> bool
+where
+    M: HasPosition3D,
+    M::V: Position<Dim = U3>,
+{
+    let keep = sim::orient_3d(mesh, index_fn, v1, v2, v3, vp);
+    sim::orient_3d(mesh, index_fn, v3, v2, v1, vn) == keep &&
+    sim::orient_3d(mesh, index_fn, v1, v2, vn, vp) == keep &&
+    sim::orient_3d(mesh, index_fn, v2, v3, vn, vp) == keep &&
+    sim::orient_3d(mesh, index_fn, v3, v1, vn, vp) == keep
 }
 
 fn find_tet_to_delete<M>(mesh: &M, new_vertex: VertexId, ghost: VertexId) -> TetId
@@ -137,6 +152,74 @@ where
     }
 
     mesh.remove_vertex(ghost);
+    mesh
+}
+
+/// Recover as many edges as possible in the tetrahedralization.
+pub(crate) fn recover_edges<M, EM>(mut mesh: M, edge_mesh: &EM) -> M
+where
+    M: HasTets<MwbT = B1> + HasPosition3D,
+    M::V: Position<Dim = U3> + Clone,
+    M::E: Clone,
+    M::F: Clone,
+    M::T: Clone,
+    M::WithoutTets: HasTris<HigherF = typenum::B0>,
+    EM: HasEdges + HasPosition3D,
+    EM::V: Position<Dim = U3>,
+{
+    let mut num_missing_edges = 0;
+
+    for depth in 1..4 {
+        let mut to_recover = 
+            edge_mesh.edge_ids().copied().filter(|e| !mesh.contains_edge(*e)).map(|e| e.undirected()).collect::<FnvHashSet<_>>()
+                .into_iter().collect::<Vec<_>>();
+        num_missing_edges = 0;
+
+        while let Some(edge) = to_recover.pop() {
+            let mut interfering_tris: Vec<TriId> = vec![];
+
+            while !mesh.contains_edge(edge) {
+                // Look for next triangle that intersects the edge to recover
+                if let Some(tri) = interfering_tris.last() {
+                    let twin = tri.twin();
+                    let vertex = mesh.tri_vertex_opp(twin).unwrap();
+                    if vertex == edge.0[1] {
+                        // Could not recover edge
+                        num_missing_edges += 1;
+                        break;
+                    }
+                    interfering_tris.push(twin.edges()
+                        .iter()
+                        .map(|edge| TriId::from_valid([edge.0[1], edge.0[0], vertex]))
+                        .find(|tri| tri_intersects_edge(&mesh, tri.0[0], tri.0[1], tri.0[2], edge.0[0], edge.0[1]))
+                        .unwrap());
+                } else {
+                    interfering_tris.push(mesh.vertex_tri_opps(edge.0[0])
+                        .find(|tri| tri_intersects_edge(&mesh, tri.0[0], tri.0[1], tri.0[2], edge.0[0], edge.0[1]))
+                        .unwrap()); // It must exist
+                }
+
+                // Try to perform flips back to the source vertex of the edge to recover
+                while let Some(interfering_tri) = interfering_tris.pop() {
+                    if mesh.contains_tri(interfering_tri) && !mesh.remove_tri_via_flips(interfering_tri, depth,
+                        |_, edge| !edge_mesh.contains_edge(edge),
+                        |_, _| true,
+                        |_, _, _| true,
+                        |m, v0, v1, v2|
+                            edge.contains_vertex(v0) || edge.contains_vertex(v1) || edge.contains_vertex(v2) ||
+                            !tri_intersects_edge(m, v0, v1, v2, edge.0[0], edge.0[1]),
+                        &mut vec![]
+                    ) {
+                        interfering_tris.push(interfering_tri);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    println!("Missing {} out of {} edges.", num_missing_edges, edge_mesh.num_edges() / 2);
+    
     mesh
 }
 
@@ -370,6 +453,55 @@ mod tests {
         mesh.delaunay_tets(|| (), || (), || ());
     }
 
+    #[test]
+    fn test_tri_intersects_edge_true() {
+        let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
+        let ids = mesh.extend_vertices(vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(-1.0, -1.0, 0.0),
+            Point3::new(-1.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, -1.0),
+        ]);
+
+        assert!(tri_intersects_edge(&mesh, ids[0], ids[1], ids[2], ids[3], ids[4]));
+        assert!(tri_intersects_edge(&mesh, ids[0], ids[1], ids[2], ids[4], ids[3]));
+    }
+
+    #[test]
+    fn test_tri_intersects_edge_false_off_triangle() {
+        let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
+        let ids = mesh.extend_vertices(vec![
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(1.0, -1.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, -1.0),
+        ]);
+
+        assert!(!tri_intersects_edge(&mesh, ids[0], ids[1], ids[2], ids[3], ids[4]));
+        assert!(!tri_intersects_edge(&mesh, ids[1], ids[2], ids[0], ids[3], ids[4]));
+        assert!(!tri_intersects_edge(&mesh, ids[2], ids[0], ids[1], ids[3], ids[4]));
+        assert!(!tri_intersects_edge(&mesh, ids[0], ids[1], ids[2], ids[4], ids[3]));
+        assert!(!tri_intersects_edge(&mesh, ids[1], ids[2], ids[0], ids[4], ids[3]));
+        assert!(!tri_intersects_edge(&mesh, ids[2], ids[0], ids[1], ids[4], ids[3]));
+    }
+
+    #[test]
+    fn test_tri_intersects_edge_false_off_plane() {
+        let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
+        let ids = mesh.extend_vertices(vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(-1.0, -1.0, 0.0),
+            Point3::new(-1.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Point3::new(0.0, 0.0, -2.0),
+        ]);
+
+        assert!(!tri_intersects_edge(&mesh, ids[0], ids[2], ids[1], ids[3], ids[4]));
+        assert!(!tri_intersects_edge(&mesh, ids[0], ids[2], ids[1], ids[4], ids[3]));
+    }
+
     //#[test]
     //fn test_export() {
     //    let mut mesh = ComboMesh0::<Point3<f64>>::with_defaults(|| Point3::origin());
@@ -388,4 +520,14 @@ mod tests {
 
     //    mesh.to_separate_tets().write_obj("assets/ybg_out.obj").unwrap();
     //}
+
+    #[test]
+    fn test_import() {
+        use crate::mesh2::ComboMesh2;
+        let mesh = ComboMesh2::read_obj("assets/ybg.obj", || Point3::origin(), || (), || ()).unwrap();
+        let mesh = recover_edges(mesh.clone().delaunay_tets(|| (), || (), || ()),
+            &mesh);
+
+        mesh.to_separate_tets().write_obj("assets/ybg_out.obj").unwrap();
+    }
 }

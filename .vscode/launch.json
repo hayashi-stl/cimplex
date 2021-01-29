@@ -13,7 +13,9 @@
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=cimplex"
+                    "--package=cimplex",
+                    "--features",
+                    "obj"
                 ],
                 "filter": {
                     "name": "cimplex",
