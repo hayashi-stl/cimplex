@@ -275,25 +275,28 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     #[cfg(feature = "obj")]
     fn obj_with_tris<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>) {
         // Triangles
-        data.objects[0].groups[0].polys.extend(
-            self.tri_ids().map(|tri| {
+        data.objects[0].groups[0]
+            .polys
+            .extend(self.tri_ids().map(|tri| {
                 obj::SimplePolygon(vec![
                     obj::IndexTuple(v_inv[&tri.0[0]], None, None),
                     obj::IndexTuple(v_inv[&tri.0[1]], None, None),
                     obj::IndexTuple(v_inv[&tri.0[2]], None, None),
                 ])
-            })
-        );
+            }));
 
         // Isolated edges
         data.objects[0].groups[0].polys.extend(
-            self.edge_ids().flat_map(|e| self.edge_vertex_opps(*e).next().map(|_| e.undirected()))
-                .collect::<FnvHashSet<_>>().into_iter().map(|edge| {
+            self.edge_ids()
+                .flat_map(|e| self.edge_vertex_opps(*e).next().map(|_| e.undirected()))
+                .collect::<FnvHashSet<_>>()
+                .into_iter()
+                .map(|edge| {
                     obj::SimplePolygon(vec![
                         obj::IndexTuple(v_inv[&edge.0[0]], None, None),
                         obj::IndexTuple(v_inv[&edge.0[1]], None, None),
                     ])
-                })
+                }),
         );
 
         self.obj_with_tris_higher::<Key>(data, v_inv);
@@ -301,7 +304,35 @@ pub trait HasTris: HasEdges<HigherE = B1> {
 
     #[doc(hidden)]
     #[cfg(feature = "obj")]
-    fn obj_with_tris_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
+    fn obj_with_tris_higher<L: Lock>(
+        &self,
+        data: &mut obj::ObjData,
+        v_inv: &FnvHashMap<VertexId, usize>,
+    );
+
+    #[doc(hidden)]
+    fn flip12_tri_higher<EI: TryInto<EdgeId>, FI: TryInto<TriId>, L: Lock, C: FnMut(&mut Self)>(&mut self, edge: EI, vertex: VertexId, tri: FI, callback: C);
+
+    #[doc(hidden)]
+    fn flip12_tri<EI: TryInto<EdgeId>, L: Lock, C: FnMut(&mut Self)>(&mut self, edge: EI, vertex: VertexId, mut callback: C) {
+        let edge = edge.try_into().ok().unwrap();
+        let opps = self.edge_vertex_opps(edge).collect::<Vec<_>>();
+
+        for opp in &opps {
+            let tri = TriId::from_valid([edge.0[0], edge.0[1], *opp]);
+            // Wrong, but whatever. Let's wait until I need to split edges in tet meshes
+            //self.flip12_tri_higher::<_, _, Key, _>(edge, vertex, tri, |mesh| {
+            self.remove_tri_keep_edges(tri).unwrap();
+            //});
+        }
+
+        callback(self);
+
+        for opp in opps {
+            self.add_tri(TriId::from_valid([edge.0[0], vertex, opp]), self.default_tri()); // lazy
+            self.add_tri(TriId::from_valid([vertex, edge.0[1], opp]), self.default_tri());
+        }
+    }
 
     /// Gets the default value of a triangle.
     fn default_tri(&self) -> Self::F {
@@ -346,7 +377,13 @@ pub trait HasTris: HasEdges<HigherE = B1> {
     /// or None if it doesn't.
     /// Useful for composing with functions that assume the triangle exists.
     fn tri_id<FI: TryInto<TriId>>(&self, id: FI) -> Option<TriId> {
-        id.try_into().ok().and_then(|id| if self.contains_tri(id) { Some(id) } else { None })
+        id.try_into().ok().and_then(|id| {
+            if self.contains_tri(id) {
+                Some(id)
+            } else {
+                None
+            }
+        })
     }
 
     /// Gets the value of the triangle at a specific id.
@@ -435,6 +472,28 @@ pub trait HasTris: HasEdges<HigherE = B1> {
             edge.0[1],
             self.edge_vertex_opp(edge)?,
         ]))
+    }
+
+    fn flip13<FI: TryInto<TriId>>(&mut self, tri: FI, vertex: VertexId)
+    where
+        Self::F: Clone
+    {
+        let tri = tri.try_into().ok().unwrap();
+        assert!(self.contains_tri(tri) || self.contains_tri(tri.twin()));
+        if self.contains_tri(tri) {
+            let value = self.remove_tri(tri).unwrap();
+            self.add_tri(TriId::from_valid([tri.0[0], tri.0[1], vertex]), value.clone());
+            self.add_tri(TriId::from_valid([tri.0[1], tri.0[2], vertex]), value.clone());
+            self.add_tri(TriId::from_valid([tri.0[2], tri.0[0], vertex]), value);
+        }
+
+        let tri = tri.twin();
+        if self.contains_tri(tri) {
+            let value = self.remove_tri(tri).unwrap();
+            self.add_tri(TriId::from_valid([tri.0[0], tri.0[1], vertex]), value.clone());
+            self.add_tri(TriId::from_valid([tri.0[1], tri.0[2], vertex]), value.clone());
+            self.add_tri(TriId::from_valid([tri.0[2], tri.0[0], vertex]), value);
+        }
     }
 
     /// Adds a triangle to the mesh. Vertex order is important!
@@ -953,6 +1012,12 @@ where
     }
 }
 
+impl<M: HasTris + HasPosition> HasPositionAndTris for M
+where
+    Self::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<Self>>,
+{}
+
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_tri {
@@ -1201,12 +1266,22 @@ macro_rules! impl_has_tris {
         crate::if_b0! { $higher =>
             #[cfg(feature = "obj")]
             fn obj_with_tris_higher<L: crate::private::Lock>(&self, _: &mut obj::ObjData, _: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {}
+
+            fn flip12_tri_higher<
+                EI: std::convert::TryInto<crate::edge::EdgeId>, FI: std::convert::TryInto<crate::tri::TriId>, L: crate::private::Lock, C: FnMut(&mut Self)
+            >(&mut self, _edge: EI, _vertex: crate::vertex::VertexId, _tri: FI, _callback: C) {}
         }
 
         crate::if_b1! { $higher =>
             #[cfg(feature = "obj")]
             fn obj_with_tris_higher<L: crate::private::Lock>(&self, data: &mut obj::ObjData, v_inv: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {
                 self.obj_with_tets::<crate::private::Key>(data, v_inv);
+            }
+
+            fn flip12_tri_higher<
+                EI: std::convert::TryInto<crate::edge::EdgeId>, FI: std::convert::TryInto<crate::tri::TriId>, L: crate::private::Lock, C: FnMut(&mut Self)
+            >(&mut self, edge: EI, vertex: crate::vertex::VertexId, tri: FI, callback: C) {
+                self.flip12_tet::<_, _, crate::private::Key, _>(edge, vertex, tri, callback);
             }
         }
     };

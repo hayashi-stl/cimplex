@@ -1,8 +1,8 @@
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
+use nalgebra::dimension::{U2, U3};
 use std::fmt::Debug;
 use typenum::{B0, B1};
-use nalgebra::dimension::{U2, U3};
 
 use crate::mesh2::internal::HigherEdge;
 use crate::tet::{HasTets, TetId};

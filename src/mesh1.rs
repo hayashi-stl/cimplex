@@ -1,13 +1,13 @@
 use edge::HasEdges;
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
+use nalgebra::dimension::{U2, U3};
 use std::fmt::Debug;
 use typenum::{B0, B1};
-use nalgebra::dimension::{U2, U3};
 
-use crate::{ComboMesh2, ComboMesh3, private::Lock};
 use crate::{edge, vertex::HasVertices, PtN};
 use crate::{edge::EdgeId, vertex::IdType};
+use crate::{private::Lock, ComboMesh2, ComboMesh3};
 use crate::{vertex::VertexId, ComboMesh0};
 
 use internal::{Edge, HigherVertex, MwbEdge};

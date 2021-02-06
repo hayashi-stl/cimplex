@@ -1,20 +1,20 @@
 //! Traits and structs related to tetrahedrons
 
-use simplicity as sim;
 use fnv::FnvHashMap;
 use idmap::OrderedIdMap;
+use nalgebra::dimension::U3;
 use nalgebra::{allocator::Allocator, DefaultAllocator};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use simplicity as sim;
 use std::collections::hash_map;
 use std::convert::{TryFrom, TryInto};
 use std::iter::Map;
 use std::vec;
 use typenum::{Bit, B0, B1};
-use nalgebra::dimension::U3;
 
-use crate::{iter::{FlatMapWith, IteratorExt, MapWith}, vertex::HasPosition3D};
 use crate::private::{Key, Lock};
+use crate::tetrahedralize::index_fn;
 use crate::tri::{EdgeVertexOpps, Tri};
 use crate::tri::{HasTris, TriId, TriWalker};
 use crate::vertex::VertexId;
@@ -27,7 +27,10 @@ use crate::{
     tri::IntoTris,
     vertex::{HasVertices, IntoVertices},
 };
-use crate::tetrahedralize::index_fn;
+use crate::{
+    iter::{FlatMapWith, IteratorExt, MapWith},
+    vertex::HasPosition3D,
+};
 
 /// An tetrahedron id is just the tetrahedrons's vertices in winding order,
 /// with the smallest two indexes first.
@@ -359,8 +362,17 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
     #[doc(hidden)]
     #[cfg(feature = "obj")]
-    fn obj_with_tets<L: Lock>(&self, _data: &mut obj::ObjData, _v_inv: &FnvHashMap<VertexId, usize>) {
+    fn obj_with_tets<L: Lock>(
+        &self,
+        _data: &mut obj::ObjData,
+        _v_inv: &FnvHashMap<VertexId, usize>,
+    ) {
         panic!("Can't export tet mesh as obj");
+    }
+
+    #[doc(hidden)]
+    fn flip12_tet<EI: TryInto<EdgeId>, FI: TryInto<TriId>, L: Lock, C: FnMut(&mut Self)>(&mut self, edge: EI, vertex: VertexId, tri: FI, callback: C) {
+        unimplemented!()
     }
 
     /// Gets the default value of a tetrahedron.
@@ -406,7 +418,13 @@ pub trait HasTets: HasTris<HigherF = B1> {
     /// or None if it doesn't.
     /// Useful for composing with functions that assume the tetrahedron exists.
     fn tet_id<TI: TryInto<TetId>>(&self, id: TI) -> Option<TetId> {
-        id.try_into().ok().and_then(|id| if self.contains_tet(id) { Some(id) } else { None })
+        id.try_into().ok().and_then(|id| {
+            if self.contains_tet(id) {
+                Some(id)
+            } else {
+                None
+            }
+        })
     }
 
     /// Gets the value of the tetrahedron at a specific id.
@@ -525,38 +543,56 @@ pub trait HasTets: HasTris<HigherF = B1> {
             .flat_map_with(self, |mesh, tri| mesh.tri_tets(tri.twin()))
     }
 
-    /// Attempts to flip away the triangle of the first 3 vertices, creating an edge connecting the last 2 vertices.
+    /// Flips in a new vertex `vn` by splitting the tet [v1, v2, v3, v4].
+    /// [v1, v2, v3, v4] must have a positive orientation.
+    /// This sets custom values to their default.
+    /// This method is pretty much unchecked.
+    fn flip14(&mut self, v1: VertexId, v2: VertexId, v3: VertexId, v4: VertexId, vn: VertexId)
+    where
+        Self: HasTets<MwbT = B1>,
+    {
+        self.remove_tet(TetId::from_valid([v1, v2, v3, v4])).unwrap();
+        self.add_tet(TetId::from_valid([v1, v2, v3, vn]), self.default_tet());
+        self.add_tet(TetId::from_valid([v4, v3, v2, vn]), self.default_tet());
+        self.add_tet(TetId::from_valid([v3, v4, v1, vn]), self.default_tet());
+        self.add_tet(TetId::from_valid([v2, v1, v4, vn]), self.default_tet());
+    }
+
+    /// Flips away the triangle of the first 3 vertices, creating an edge connecting the last 2 vertices.
     /// [v1, v2, v3, vp] must have a positive orientation.
     /// This sets custom values to their default.
     /// This method is pretty much unchecked.
     fn flip23(&mut self, v1: VertexId, v2: VertexId, v3: VertexId, vp: VertexId, vn: VertexId)
     where
-        Self: HasTets<MwbT = B1>
+        Self: HasTets<MwbT = B1>,
     {
-        self.remove_tet(TetId::from_valid([v1, v2, v3, vp]));
-        self.remove_tet(TetId::from_valid([v3, v2, v1, vn]));
+        self.remove_tet(TetId::from_valid([v1, v2, v3, vp])).unwrap();
+        self.remove_tet(TetId::from_valid([v3, v2, v1, vn])).unwrap();
         self.add_tet(TetId::from_valid([v1, v2, vn, vp]), self.default_tet());
         self.add_tet(TetId::from_valid([v2, v3, vn, vp]), self.default_tet());
         self.add_tet(TetId::from_valid([v3, v1, vn, vp]), self.default_tet());
     }
 
-    /// Attempts to flip away the edge connecting the last 2 vertices, creating a triangle of the first 3 vertices.
+    /// Flips away the edge connecting the last 2 vertices, creating a triangle of the first 3 vertices.
     /// [v1, v2, v3, vp] must have a positive orientation.
     /// This sets custom values to their default.
     /// This method is pretty much unchecked.
     fn flip32(&mut self, v1: VertexId, v2: VertexId, v3: VertexId, vp: VertexId, vn: VertexId)
     where
-        Self: HasTets<MwbT = B1>
+        Self: HasTets<MwbT = B1>,
     {
-        self.remove_tet(TetId::from_valid([v1, v2, vn, vp]));
-        self.remove_tet(TetId::from_valid([v2, v3, vn, vp]));
-        self.remove_tet(TetId::from_valid([v3, v1, vn, vp]));
+        self.remove_tet(TetId::from_valid([v1, v2, vn, vp])).unwrap();
+        self.remove_tet(TetId::from_valid([v2, v3, vn, vp])).unwrap();
+        self.remove_tet(TetId::from_valid([v3, v1, vn, vp])).unwrap();
         self.add_tet(TetId::from_valid([v1, v2, v3, vp]), self.default_tet());
         self.add_tet(TetId::from_valid([v3, v2, v1, vn]), self.default_tet());
     }
 
     /// Attempts to remove a triangle with flips and returns whether this succeeded.
-    fn remove_tri_via_flips<FI: TryInto<TriId>>(&mut self, tri: FI, depth: usize,
+    fn remove_tri_via_flips<FI: TryInto<TriId>>(
+        &mut self,
+        tri: FI,
+        depth: usize,
         edge_removable: impl Fn(&Self, EdgeId) -> bool + Clone,
         tri_removable: impl Fn(&Self, TriId) -> bool + Clone,
         edge_addable: impl Fn(&Self, VertexId, VertexId) -> bool + Clone,
@@ -589,18 +625,51 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
         // Check for concavity, then addability
         if sim::orient_3d(self, index_fn, tri.0[0], tri.0[1], vp, vn) {
-            self.remove_edge_via_flips(EdgeId([tri.0[0], tri.0[1]]), depth - 1,
-                edge_removable, tri_removable, edge_addable, tri_addable, bad_edges) || !self.contains_tri(tri)
+            self.remove_edge_via_flips(
+                EdgeId([tri.0[0], tri.0[1]]),
+                depth - 1,
+                edge_removable,
+                tri_removable,
+                edge_addable,
+                tri_addable,
+                bad_edges,
+            ) || !self.contains_tri(tri)
         } else if sim::orient_3d(self, index_fn, tri.0[1], tri.0[2], vp, vn) {
-            self.remove_edge_via_flips(EdgeId([tri.0[1], tri.0[2]]), depth - 1,
-                edge_removable, tri_removable, edge_addable, tri_addable, bad_edges) || !self.contains_tri(tri)
+            self.remove_edge_via_flips(
+                EdgeId([tri.0[1], tri.0[2]]),
+                depth - 1,
+                edge_removable,
+                tri_removable,
+                edge_addable,
+                tri_addable,
+                bad_edges,
+            ) || !self.contains_tri(tri)
         } else if sim::orient_3d(self, index_fn, tri.0[2], tri.0[0], vp, vn) {
-            self.remove_edge_via_flips(EdgeId([tri.0[2], tri.0[0]]), depth - 1,
-                edge_removable, tri_removable, edge_addable, tri_addable, bad_edges) || !self.contains_tri(tri)
-        } else if edge_addable(self, vp, vn) &&
-            tri_addable(self, tri.0[0], vp, vn) && bad_edges.iter().all(|edge| {let tri = TriId::from_valid([tri.0[0], vp, vn]); !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())}) &&
-            tri_addable(self, tri.0[1], vp, vn) && bad_edges.iter().all(|edge| {let tri = TriId::from_valid([tri.0[1], vp, vn]); !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())}) &&
-            tri_addable(self, tri.0[2], vp, vn) && bad_edges.iter().all(|edge| {let tri = TriId::from_valid([tri.0[2], vp, vn]); !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())})
+            self.remove_edge_via_flips(
+                EdgeId([tri.0[2], tri.0[0]]),
+                depth - 1,
+                edge_removable,
+                tri_removable,
+                edge_addable,
+                tri_addable,
+                bad_edges,
+            ) || !self.contains_tri(tri)
+        } else if edge_addable(self, vp, vn)
+            && tri_addable(self, tri.0[0], vp, vn)
+            && bad_edges.iter().all(|edge| {
+                let tri = TriId::from_valid([tri.0[0], vp, vn]);
+                !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())
+            })
+            && tri_addable(self, tri.0[1], vp, vn)
+            && bad_edges.iter().all(|edge| {
+                let tri = TriId::from_valid([tri.0[1], vp, vn]);
+                !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())
+            })
+            && tri_addable(self, tri.0[2], vp, vn)
+            && bad_edges.iter().all(|edge| {
+                let tri = TriId::from_valid([tri.0[2], vp, vn]);
+                !tri.edges().contains(edge) && !tri.edges().contains(&edge.twin())
+            })
         {
             self.flip23(tri.0[0], tri.0[1], tri.0[2], vp, vn);
             true
@@ -610,13 +679,16 @@ pub trait HasTets: HasTris<HigherF = B1> {
     }
 
     /// Attempts to remove an edge with flips and returns whether this succeeded.
-    fn remove_edge_via_flips<EI: TryInto<EdgeId>>(&mut self, edge: EI, depth: usize,
+    fn remove_edge_via_flips<EI: TryInto<EdgeId>>(
+        &mut self,
+        edge: EI,
+        depth: usize,
         edge_removable: impl Fn(&Self, EdgeId) -> bool + Clone,
         tri_removable: impl Fn(&Self, TriId) -> bool + Clone,
         edge_addable: impl Fn(&Self, VertexId, VertexId) -> bool + Clone,
         tri_addable: impl Fn(&Self, VertexId, VertexId, VertexId) -> bool + Clone,
         bad_edges: &mut Vec<EdgeId>,
-    ) -> bool 
+    ) -> bool
     where
         Self: HasTets<MwbT = B1> + HasPosition3D + Sized,
         Self::V: Position<Dim = U3>,
@@ -637,7 +709,10 @@ pub trait HasTets: HasTris<HigherF = B1> {
         let mut vertex_opps = self.edge_vertex_opps(edge).collect::<Vec<_>>();
 
         // Make sure this isn't a boundary edge
-        if vertex_opps.iter().any(|opp| !self.contains_tri(TriId::from_valid([edge.0[1], edge.0[0], *opp]))) {
+        if vertex_opps
+            .iter()
+            .any(|opp| !self.contains_tri(TriId::from_valid([edge.0[1], edge.0[0], *opp])))
+        {
             return false;
         }
 
@@ -650,12 +725,14 @@ pub trait HasTets: HasTris<HigherF = B1> {
 
             // Avoid flipping a triangle to the edge I'm trying to remove triangles from!
             bad_edges.push(edge);
-            let removed = self.remove_tri_via_flips(TriId::from_valid([edge.0[0], edge.0[1], opp]), depth,
+            let removed = self.remove_tri_via_flips(
+                TriId::from_valid([edge.0[0], edge.0[1], opp]),
+                depth,
                 edge_removable.clone(),
                 tri_removable.clone(),
                 edge_addable.clone(),
                 tri_addable.clone(),
-                bad_edges
+                bad_edges,
             );
             bad_edges.pop();
 
@@ -664,16 +741,24 @@ pub trait HasTets: HasTris<HigherF = B1> {
             }
         }
 
+        // Cardinality around the edge could have skipped straight to 0 in a roundabout way.
+        if !self.contains_edge(edge) {
+            return true;
+        }
+
         let [v0, v1, v2] = [vertex_opps[0], vertex_opps[1], vertex_opps[2]];
         let v012 = TriId::from_valid([v0, v1, v2]);
 
         // Check for concavities
         let orient = sim::orient_3d(self, index_fn, v0, v1, v2, edge.0[0]);
-        if  orient == sim::orient_3d(self, index_fn, v2, v1, v0, edge.0[1]) &&
-            tri_removable(self, TriId::from_valid([v0, edge.0[0], edge.0[1]])) &&
-            tri_removable(self, TriId::from_valid([v1, edge.0[0], edge.0[1]])) &&
-            tri_removable(self, TriId::from_valid([v2, edge.0[0], edge.0[1]])) &&
-            tri_addable(self, v0, v1, v2) && bad_edges.iter().all(|edge| !v012.edges().contains(edge) && !v012.edges().contains(&edge.twin()))
+        if orient == sim::orient_3d(self, index_fn, v2, v1, v0, edge.0[1])
+            && tri_removable(self, TriId::from_valid([v0, edge.0[0], edge.0[1]]))
+            && tri_removable(self, TriId::from_valid([v1, edge.0[0], edge.0[1]]))
+            && tri_removable(self, TriId::from_valid([v2, edge.0[0], edge.0[1]]))
+            && tri_addable(self, v0, v1, v2)
+            && bad_edges
+                .iter()
+                .all(|edge| !v012.edges().contains(edge) && !v012.edges().contains(&edge.twin()))
         {
             let index = if orient { 0 } else { 1 };
             self.flip32(v0, v1, v2, edge.0[index], edge.0[1 - index]);
@@ -938,23 +1023,36 @@ pub trait HasTets: HasTris<HigherF = B1> {
         Self::V: Clone,
         Self::E: Clone,
         Self::F: Clone,
-        Self::WithoutTets: HasTris<HigherF = B0>
+        Self::WithoutTets: HasTris<HigherF = B0>,
     {
-        let mut mesh = <Self::WithoutTets as HasTris>::from_vef_r::<_, _, _, Key>(vec![], vec![], vec![],
-            self.default_v_r::<Key>(), self.default_e_r::<Key>(), self.default_f_r::<Key>());
+        let mut mesh = <Self::WithoutTets as HasTris>::from_vef_r::<_, _, _, Key>(
+            vec![],
+            vec![],
+            vec![],
+            self.default_v_r::<Key>(),
+            self.default_e_r::<Key>(),
+            self.default_f_r::<Key>(),
+        );
 
         for tet in self.tet_ids() {
-            let v_map = tet.vertices().iter().map(|v_id| {
-                (*v_id, mesh.add_vertex(self.vertex(*v_id).unwrap().clone()))
-            }).collect::<OrderedIdMap<_, _>>();
+            let v_map = tet
+                .vertices()
+                .iter()
+                .map(|v_id| (*v_id, mesh.add_vertex(self.vertex(*v_id).unwrap().clone())))
+                .collect::<OrderedIdMap<_, _>>();
 
             for edge in &tet.edges() {
-                mesh.add_edge(EdgeId([v_map[edge.0[0]], v_map[edge.0[1]]]), self.edge(*edge).unwrap().clone());
+                mesh.add_edge(
+                    EdgeId([v_map[edge.0[0]], v_map[edge.0[1]]]),
+                    self.edge(*edge).unwrap().clone(),
+                );
             }
 
             for tri in &tet.tris() {
-                mesh.add_tri(TriId::from_valid([v_map[tri.0[0]], v_map[tri.0[1]], v_map[tri.0[2]]]),
-                    self.tri(*tri).unwrap().clone());
+                mesh.add_tri(
+                    TriId::from_valid([v_map[tri.0[0]], v_map[tri.0[1]], v_map[tri.0[2]]]),
+                    self.tri(*tri).unwrap().clone(),
+                );
             }
         }
 

@@ -4,5 +4,4 @@
 pub use obj_io::*;
 
 #[cfg(feature = "obj")]
-mod obj_io {
-}
+mod obj_io {}

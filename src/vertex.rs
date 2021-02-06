@@ -197,7 +197,11 @@ pub trait HasVertices {
 
     #[doc(hidden)]
     #[cfg(feature = "obj")]
-    fn obj_with_vertices_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
+    fn obj_with_vertices_higher<L: Lock>(
+        &self,
+        data: &mut obj::ObjData,
+        v_inv: &FnvHashMap<VertexId, usize>,
+    );
 
     /// Gets the default value of a vertex.
     fn default_vertex(&self) -> Self::V {
@@ -239,7 +243,11 @@ pub trait HasVertices {
     /// or None if it doesn't.
     /// Useful for composing with functions that assume the vertex exists.
     fn vertex_id(&self, id: VertexId) -> Option<VertexId> {
-        if self.contains_vertex(id) { Some(id) } else { None }
+        if self.contains_vertex(id) {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     /// Gets the value of the vertex at a specific id.
@@ -260,8 +268,7 @@ pub trait HasVertices {
     fn add_vertex(&mut self, value: Self::V) -> VertexId {
         let id = VertexId(self.next_vertex_id::<Key>());
         *self.next_vertex_id_mut::<Key>() += 1;
-        self
-            .vertices_r_mut::<Key>()
+        self.vertices_r_mut::<Key>()
             .insert(id, <Self::Vertex as Vertex>::new::<Key>(id, value));
         id
     }
@@ -422,13 +429,20 @@ where
     #[cfg(feature = "obj")]
     fn to_obj(&self) -> obj::ObjData {
         let vertices = self.vertex_ids().copied().collect::<Vec<_>>();
-        let vertices_inv = vertices.iter().enumerate().map(|(i, v)| (*v, i)).collect::<FnvHashMap<_, _>>();
+        let vertices_inv = vertices
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (*v, i))
+            .collect::<FnvHashMap<_, _>>();
 
         let mut data = obj::ObjData {
-            position: vertices.into_iter().map(|v| {
+            position: vertices
+                .into_iter()
+                .map(|v| {
                     let point = self.position(v);
                     [point.x as f32, point.y as f32, point.z as f32]
-                }).collect::<Vec<_>>(),
+                })
+                .collect::<Vec<_>>(),
 
             texture: vec![],
             normal: vec![],
@@ -440,10 +454,10 @@ where
                     index: 0,
                     material: None,
                     polys: vec![],
-                }]
+                }],
             }],
 
-            material_libs: vec![]
+            material_libs: vec![],
         };
 
         self.obj_with_vertices_higher::<Key>(&mut data, &vertices_inv);

@@ -76,12 +76,12 @@ impl EdgeId {
     fn index(self, vertex: VertexId) -> usize {
         self.0.iter().position(|v| *v == vertex).unwrap()
     }
-    
+
     pub(crate) fn invalid() -> Self {
         // Same ID
         Self([VertexId(0); 2])
     }
-    
+
     pub(crate) fn dummy() -> Self {
         Self([VertexId::dummy(); 2])
     }
@@ -238,14 +238,24 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     #[doc(hidden)]
     #[cfg(feature = "obj")]
-    fn obj_with_edges<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>) {
+    fn obj_with_edges<L: Lock>(
+        &self,
+        data: &mut obj::ObjData,
+        v_inv: &FnvHashMap<VertexId, usize>,
+    ) {
         // If there are triangles, only isolated edges should be added separately.
         if !<Self::HigherE as Bit>::BOOL {
             data.objects[0].groups[0].polys.extend(
-                self.edge_ids().map(|edge| edge.undirected()).collect::<FnvHashSet<_>>().into_iter().map(|edge| obj::SimplePolygon(vec![
-                    obj::IndexTuple(v_inv[&edge.0[0]], None, None),
-                    obj::IndexTuple(v_inv[&edge.0[1]], None, None),
-                ]))
+                self.edge_ids()
+                    .map(|edge| edge.undirected())
+                    .collect::<FnvHashSet<_>>()
+                    .into_iter()
+                    .map(|edge| {
+                        obj::SimplePolygon(vec![
+                            obj::IndexTuple(v_inv[&edge.0[0]], None, None),
+                            obj::IndexTuple(v_inv[&edge.0[1]], None, None),
+                        ])
+                    }),
             )
         }
 
@@ -254,7 +264,15 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
 
     #[doc(hidden)]
     #[cfg(feature = "obj")]
-    fn obj_with_edges_higher<L: Lock>(&self, data: &mut obj::ObjData, v_inv: &FnvHashMap<VertexId, usize>);
+    fn obj_with_edges_higher<L: Lock>(
+        &self,
+        data: &mut obj::ObjData,
+        v_inv: &FnvHashMap<VertexId, usize>,
+    );
+
+    /// Flips an edge into 2 edges with `vertex` between them.
+    #[doc(hidden)]
+    fn flip12_edge_higher<EI: TryInto<EdgeId>, L: Lock, C: FnMut(&mut Self)>(&mut self, edge: EI, vertex: VertexId, callback: C);
 
     /// Gets the default value of an edge.
     fn default_edge(&self) -> Self::E {
@@ -299,7 +317,13 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
     /// or None if it doesn't.
     /// Useful for composing with functions that assume the edge exists.
     fn edge_id<EI: TryInto<EdgeId>>(&self, id: EI) -> Option<EdgeId> {
-        id.try_into().ok().and_then(|id| if self.contains_edge(id) { Some(id) } else { None })
+        id.try_into().ok().and_then(|id| {
+            if self.contains_edge(id) {
+                Some(id)
+            } else {
+                None
+            }
+        })
     }
 
     /// Gets the value of the edge at a specific id.
@@ -408,6 +432,32 @@ pub trait HasEdges: HasVertices<HigherV = B1> {
         Self: HasEdges<MwbE = B1>,
     {
         Some(EdgeId([self.vertex_source(vertex)?, vertex]))
+    }
+
+    /// Flips an edge into 2 edges with `vertex` between them.
+    fn flip12<EI: TryInto<EdgeId>>(&mut self, edge: EI, vertex: VertexId)
+    where
+        Self::E: Clone
+    {
+        let edge = edge.try_into().ok().unwrap();
+
+        assert!(self.contains_edge(edge) || self.contains_edge(edge.twin()));
+        if self.contains_edge(edge) {
+            self.flip12_edge_higher::<_, Key, _>(edge, vertex, |mesh| {
+                let value = mesh.remove_edge(edge).unwrap();
+                mesh.add_edge(EdgeId([edge.0[0], vertex]), value.clone());
+                mesh.add_edge(EdgeId([vertex, edge.0[1]]), value);
+            });
+        }
+
+        let edge = edge.twin();
+        if self.contains_edge(edge) {
+            self.flip12_edge_higher::<_, Key, _>(edge, vertex, |mesh| {
+                let value = mesh.remove_edge(edge).unwrap();
+                mesh.add_edge(EdgeId([edge.0[0], vertex]), value.clone());
+                mesh.add_edge(EdgeId([vertex, edge.0[1]]), value);
+            });
+        }
     }
 
     /// Adds an edge to the mesh. Vertex order is important!
@@ -682,14 +732,20 @@ where
     }
 
     fn from_vertex(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        match EdgeId::try_from([vertex, mesh.vertices_r::<Key>().get(vertex)?.target::<Key>()]) {
+        match EdgeId::try_from([
+            vertex,
+            mesh.vertices_r::<Key>().get(vertex)?.target::<Key>(),
+        ]) {
             Ok(edge) => Some(Self::new(mesh, edge)),
             Err(_) => None,
         }
     }
 
     fn from_target(mesh: &'a M, vertex: VertexId) -> Option<Self> {
-        match EdgeId::try_from([mesh.vertices_r::<Key>().get(vertex)?.source::<Key>(), vertex]) {
+        match EdgeId::try_from([
+            mesh.vertices_r::<Key>().get(vertex)?.source::<Key>(),
+            vertex,
+        ]) {
             Ok(edge) => Some(Self::new(mesh, edge)),
             Err(_) => None,
         }
@@ -921,6 +977,12 @@ where
         [v0, v1]
     }
 }
+
+impl<M: HasEdges + HasPosition> HasPositionAndEdges for M
+where
+    M::V: Position,
+    DefaultAllocator: Allocator<f64, HasPositionDim<M>>,
+{}
 
 #[macro_export]
 #[doc(hidden)]
@@ -1167,12 +1229,24 @@ macro_rules! impl_has_edges {
         crate::if_b0! { $higher =>
             #[cfg(feature = "obj")]
             fn obj_with_edges_higher<L: crate::private::Lock>(&self, _: &mut obj::ObjData, _: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {}
+
+            fn flip12_edge_higher<
+                EI: std::convert::TryInto<crate::edge::EdgeId>, L: crate::private::Lock, C: FnMut(&mut Self)
+            > (&mut self, _edge: EI, _vertex: crate::vertex::VertexId, mut callback: C) {
+                callback(self);
+            }
         }
 
         crate::if_b1! { $higher =>
             #[cfg(feature = "obj")]
             fn obj_with_edges_higher<L: crate::private::Lock>(&self, data: &mut obj::ObjData, v_inv: &fnv::FnvHashMap<crate::vertex::VertexId, usize>) {
                 self.obj_with_tris::<crate::private::Key>(data, v_inv);
+            }
+
+            fn flip12_edge_higher<
+                EI: std::convert::TryInto<crate::edge::EdgeId>, L: crate::private::Lock, C: FnMut(&mut Self)
+            > (&mut self, edge: EI, vertex: crate::vertex::VertexId, callback: C) {
+                self.flip12_tri::<_, crate::private::Key, _>(edge, vertex, callback);
             }
         }
     };

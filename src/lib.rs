@@ -1,4 +1,5 @@
 pub mod edge;
+pub mod io;
 pub mod mesh0;
 pub mod mesh1;
 pub mod mesh2;
@@ -7,7 +8,6 @@ pub mod tet;
 pub mod tetrahedralize;
 pub mod tri;
 pub mod vertex;
-pub mod io;
 
 mod iter;
 mod private;
